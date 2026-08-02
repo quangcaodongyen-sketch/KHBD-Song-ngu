@@ -41,6 +41,10 @@ import {
   AlertTriangle,
   Layers,
   Plus,
+  Save,
+  Copy,
+  Search,
+  Check,
 } from 'lucide-react';
 
 interface EditorViewProps {
@@ -52,6 +56,7 @@ interface EditorViewProps {
 
 const SETTINGS_KEY = 'user_khbd_settings_v2';
 const API_KEY_STORAGE = 'gemini_api_key_v1';
+const SELECTED_MODEL_STORAGE = 'gemini_selected_model_v1';
 
 export const EditorView: React.FC<EditorViewProps> = ({
   currentDoc,
@@ -61,7 +66,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
 }) => {
   // Config state
   const [translationMode, setTranslationMode] = useState<TranslationMode>('ai');
-  const [selectedModel, setSelectedModel] = useState<string>('gemini-2.5-flash');
+  const [selectedModel, setSelectedModel] = useState<string>('gemini-3-flash-preview');
   const [bilingualStyle, setBilingualStyle] = useState<BilingualStyle>('parallel');
   const [translationTone, setTranslationTone] = useState<TranslationStyleOption>('academic');
   const [apiKey, setApiKey] = useState<string>('');
@@ -71,6 +76,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
 
   // Execution state
   const [isTranslating, setIsTranslating] = useState(false);
+  const [isIntegrating, setIsIntegrating] = useState(false);
   const [translationProgress, setTranslationProgress] = useState<{
     current: number;
     total: number;
@@ -90,6 +96,9 @@ export const EditorView: React.FC<EditorViewProps> = ({
     try {
       const savedKey = loadSavedApiKey();
       setApiKey(savedKey);
+
+      const savedModel = localStorage.getItem(SELECTED_MODEL_STORAGE);
+      if (savedModel) setSelectedModel(savedModel);
 
       const saved = localStorage.getItem(SETTINGS_KEY);
       if (saved) {
@@ -119,32 +128,32 @@ export const EditorView: React.FC<EditorViewProps> = ({
   const handleUpdateConfig = (updates: Partial<LessonPlanDocument>) => {
     const updatedDoc = { ...currentDoc, ...updates };
     setCurrentDoc(updatedDoc);
-
     try {
-      const configToSave = {
-        level: updatedDoc.level,
-        subject: updatedDoc.subject,
-        grade: updatedDoc.grade,
-        bilingualStyle,
-        translationTone,
-        translationMode,
-        selectedModel,
-      };
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify(configToSave));
+      localStorage.setItem(
+        SETTINGS_KEY,
+        JSON.stringify({
+          level: updatedDoc.level,
+          subject: updatedDoc.subject,
+          grade: updatedDoc.grade,
+          bilingualStyle,
+          translationTone,
+          translationMode,
+          selectedModel,
+        })
+      );
     } catch (e) {
       console.error('Failed to save settings:', e);
     }
   };
 
-  // Handle File Upload
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  // Upload file handler
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
     if (!file) return;
 
+    setIsTranslating(true);
     try {
-      setIsTranslating(true);
       const nodes = await parseUploadedFileToNodes(file);
-
       const newDoc: LessonPlanDocument = {
         id: `doc-${Date.now()}`,
         title: file.name.replace(/\.[^/.]+$/, ''),
@@ -163,19 +172,18 @@ export const EditorView: React.FC<EditorViewProps> = ({
       onSaveToLibrary(newDoc);
       setCurrentStep(2);
 
-      // Auto-trigger translation immediately after upload
       setTimeout(() => {
         performTranslation(nodes);
       }, 200);
     } catch (error) {
       console.error('File parse error:', error);
-      alert('Không thể đọc tệp Word. Vui lòng kiểm tra lại định dạng tệp .docx.');
+      alert('Không thể đọc tệp Word/PDF. Vui lòng kiểm tra lại định dạng tệp.');
     } finally {
       setIsTranslating(false);
     }
   };
 
-  // Perform Translation
+  // Perform Translation with Retry & Model Fallback Chain
   const performTranslation = async (targetNodes: PlanNode[]) => {
     const nodesToProcess = targetNodes && targetNodes.length > 0 ? targetNodes : currentDoc.nodes;
 
@@ -284,7 +292,6 @@ export const EditorView: React.FC<EditorViewProps> = ({
           translationsMap.set(key, val);
         });
 
-        // Live progressive state update - accumulator pattern
         setCurrentDoc((prev) => {
           const updatedNodes = prev.nodes.map((node) => {
             if (node.type === 'table' && node.tableRows) {
@@ -323,20 +330,27 @@ export const EditorView: React.FC<EditorViewProps> = ({
     }
   };
 
-  // Direct client-side Gemini API call helper matching trolysongngupro.vercel.app
+  // Gemini Direct API Call Helper with Fallback Model Chain
   const translateChunkWithGeminiDirect = async (
     chunkObjects: { id: string; text: string }[],
     userKey: string,
-    model: string,
+    initialModel: string,
     subject: string,
     level: string,
     grade: string,
     tone: string
   ): Promise<Map<string, string>> => {
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${userKey}`;
-    const resultMap = new Map<string, string>();
+    const modelsToTry = Array.from(
+      new Set([initialModel, 'gemini-3-flash-preview', 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro'])
+    );
 
-    const promptText = `Bạn là chuyên gia dịch thuật tài liệu giáo dục và soạn bài giảng (Lesson Plan) Việt - Anh hàng đầu cho giáo viên Việt Nam.
+    const resultMap = new Map<string, string>();
+    let lastError: any = null;
+
+    for (const model of modelsToTry) {
+      try {
+        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${userKey}`;
+        const promptText = `Bạn là chuyên gia dịch thuật tài liệu giáo dục và soạn bài giảng (Lesson Plan) Việt - Anh hàng đầu cho giáo viên Việt Nam.
 Hãy dịch mảng đối tượng JSON dưới đây từ tiếng Việt sang tiếng Anh cho môn ${subject} cấp ${level} lớp ${grade}.
 
 QUY TẮC DỊCH THUẬT QUAN TRỌNG:
@@ -359,142 +373,140 @@ QUY TẮC DỊCH THUẬT QUAN TRỌNG:
 MẢNG JSON CẦN DỊCH:
 ${JSON.stringify(chunkObjects, null, 2)}`;
 
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: promptText }] }],
-        generationConfig: { responseMimeType: 'application/json' },
-      }),
-    });
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: promptText }] }],
+            generationConfig: { responseMimeType: 'application/json' },
+          }),
+        });
 
-    if (!response.ok) {
-      throw new Error(`Gemini API Error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    let textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
-    textResponse = textResponse.trim().replace(/^```json\s*/, '').replace(/\s*```$/, '');
-    const parsed = JSON.parse(textResponse);
-
-    if (Array.isArray(parsed)) {
-      parsed.forEach((item: any) => {
-        if (item.id && item.text) {
-          resultMap.set(item.id, item.text);
+        if (response.status === 429 || response.status === 403) {
+          console.warn(`[Gemini API] Rate limit or Quota error on model ${model}, trying next model...`);
+          continue;
         }
-      });
+
+        if (!response.ok) {
+          throw new Error(`Gemini API Error: ${response.status}`);
+        }
+
+        const data = await response.json();
+        let textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
+        textResponse = textResponse.trim().replace(/^```json\s*/, '').replace(/\s*```$/, '');
+        const parsed = JSON.parse(textResponse);
+
+        if (Array.isArray(parsed)) {
+          parsed.forEach((item: any) => {
+            if (item.id && item.text) {
+              resultMap.set(item.id, item.text);
+            }
+          });
+          if (resultMap.size > 0) return resultMap;
+        }
+      } catch (err) {
+        lastError = err;
+      }
     }
 
+    if (resultMap.size === 0 && lastError) {
+      console.error('All model attempts failed:', lastError);
+    }
     return resultMap;
   };
 
-  // Smart sentence-by-sentence phrase translator helper (Ensures EVERY sentence gets translated)
+  // AI Digital & AI Competency Integration Handler (QĐ 3439/QĐ-BGDĐT)
+  const handleIntegrateNLSAndAI = async () => {
+    setIsIntegrating(true);
+    try {
+      const res = await fetch('/api/integrate-nls-ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nodes: currentDoc.nodes,
+          subject: currentDoc.subject,
+          level: currentDoc.level,
+          userApiKey: apiKey,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.integratedNodes) && data.integratedNodes.length > 0) {
+          const integratedMap = new Map(data.integratedNodes.map((n: any) => [n.id, n]));
+          const updatedNodes = currentDoc.nodes.map((node) => {
+            const match: any = integratedMap.get(node.id);
+            if (match) {
+              return {
+                ...node,
+                contentVi: match.contentVi || node.contentVi,
+                contentEn: match.contentEn || node.contentEn,
+                isIntegrated: true,
+                integrationType: match.integrationType || 'nls',
+              };
+            }
+            return node;
+          });
+          setCurrentDoc({ ...currentDoc, nodes: updatedNodes });
+          alert('Đã tự động tích hợp Năng lực số & AI theo QĐ 3439/QĐ-BGDĐT vào bài dạy!');
+        } else {
+          alert('AI đã phân tích: Giáo án đã được tích hợp công cụ số.');
+        }
+      } else {
+        alert('Có lỗi khi tích hợp Năng lực số. Vui lòng kiểm tra lại kết nối hoặc API Key.');
+      }
+    } catch (e) {
+      console.error('Integration error:', e);
+      alert('Không thể kết nối dịch vụ Tích hợp Năng lực số.');
+    } finally {
+      setIsIntegrating(false);
+    }
+  };
+
+  // Copy Bilingual Text to Clipboard
+  const handleCopyToClipboard = () => {
+    const textLines: string[] = [];
+    currentDoc.nodes.forEach((node) => {
+      if (node.type === 'table' && node.tableRows) {
+        node.tableRows.forEach((r) => {
+          const rowVi = r.cells.map((c) => c.contentVi).join(' | ');
+          const rowEn = r.cells.map((c) => c.contentEn).filter(Boolean).join(' | ');
+          textLines.push(rowVi);
+          if (rowEn) textLines.push(`  (${rowEn})`);
+        });
+      } else {
+        if (node.contentVi) textLines.push(node.contentVi);
+        if (node.contentEn) textLines.push(`  ${node.contentEn}`);
+      }
+    });
+    navigator.clipboard.writeText(textLines.join('\n'));
+    alert('Đã sao chép toàn bộ nội dung giáo án song ngữ vào Clipboard!');
+  };
+
   const mockTranslateText = (text: string): string => {
     if (!text || !text.trim()) return '';
     let clean = text.trim();
 
-    // Section headings & structural markers
     if (/^I\.\s*MỤC TIÊU/i.test(clean)) return 'I. OBJECTIVES:';
     if (/^1\.\s*Về kiến thức/i.test(clean) || /^1\.\s*Kiến thức/i.test(clean)) return '1. Knowledge:';
     if (/^2\.\s*Về năng lực/i.test(clean) || /^2\.\s*Năng lực/i.test(clean)) return '2. Competencies:';
-    if (/^2\.1\.\s*Năng lực chung/i.test(clean)) return '2.1. General Competencies:';
-    if (/^2\.2\.\s*Năng lực đặc thù/i.test(clean) || /^2\.2\.\s*Năng lực/i.test(clean)) return '2.2. Specific Competencies:';
-    if (/^3\.\s*Về phẩm chất/i.test(clean) || /^3\.\s*Phẩm chất/i.test(clean)) return '3. Character Attributes / Qualities:';
-    if (/^II\.\s*THIẾT BỊ DẠY HỌC/i.test(clean)) return 'II. TEACHING EQUIPMENT AND MATERIALS:';
-    if (/^III\.\s*TIẾN TRÌNH DẠY HỌC/i.test(clean)) return 'III. LESSON PROCEDURES:';
-    if (/^A\.\s*HOẠT ĐỘNG MỞ ĐẦU/i.test(clean) || /^1\.\s*Hoạt động 1:\s*Khởi động/i.test(clean) || /^1\.\s*Hoạt động 1:\s*Mở đầu/i.test(clean)) return '1. Activity 1: Warm-up / Introduction';
-    if (/^B\.\s*HOẠT ĐỘNG HÌNH THÀNH KIẾN THỨC/i.test(clean) || /^2\.\s*Hoạt động 2:\s*Hình thành kiến thức/i.test(clean)) return '2. Activity 2: Knowledge Formation';
-    if (/^C\.\s*HOẠT ĐỘNG LUYỆN TẬP/i.test(clean) || /^3\.\s*Hoạt động 3:\s*Luyện tập/i.test(clean)) return '3. Activity 3: Practice';
-    if (/^D\.\s*HOẠT ĐỘNG VẬN DỤNG/i.test(clean) || /^4\.\s*Hoạt động 4:\s*Vận dụng/i.test(clean)) return '4. Activity 4: Application';
-    if (/^a\)\s*Mục tiêu/i.test(clean) || /^\*\s*Mục tiêu/i.test(clean)) return 'a) Objectives:';
-    if (/^b\)\s*Nội dung/i.test(clean) || /^\*\s*Nội dung/i.test(clean)) return 'b) Content:';
-    if (/^c\)\s*Sản phẩm/i.test(clean) || /^\*\s*Sản phẩm/i.test(clean)) return 'c) Expected Products:';
-    if (/^d\)\s*Tổ chức thực hiện/i.test(clean) || /^\*\s*Tổ chức thực hiện/i.test(clean)) return 'd) Implementation / Organization & Execution:';
-    if (/^Hoạt động của GV VÀ HS/i.test(clean) || /^Hoạt động của GV và HS/i.test(clean)) return "Teacher's and Students' Activities";
-    if (/^Nội dung\s*$/i.test(clean) || /^Kết quả hoạt động/i.test(clean)) return 'Content / Expected Outcomes';
+    if (/^3\.\s*Về phẩm chất/i.test(clean) || /^3\.\s*Phẩm chất/i.test(clean)) return '3. Qualities:';
+    if (/^II\.\s*THIẾT BỊ/i.test(clean)) return 'II. TEACHING EQUIPMENT & LEARNING MATERIALS:';
+    if (/^III\.\s*TIẾN TRÌNH/i.test(clean)) return 'III. TEACHING PROCEDURES / LESSON OUTLINE:';
+    if (/^Hoạt động 1/i.test(clean)) return 'Activity 1: Introduction & Warm-up';
+    if (/^Hoạt động 2/i.test(clean)) return 'Activity 2: Knowledge Formation';
+    if (/^Hoạt động 3/i.test(clean)) return 'Activity 3: Practice & Application';
+    if (/^a\)\s*Chuyển giao/i.test(clean)) return 'a) Task Assignment:';
+    if (/^b\)\s*Thực hiện/i.test(clean)) return 'b) Task Execution:';
+    if (/^c\)\s*Báo cáo/i.test(clean)) return 'c) Presentation & Discussion:';
+    if (/^d\)\s*Kết luận/i.test(clean)) return 'd) Conclusion & Assessment:';
 
-    // Step 1 - 4 Activity Titles
-    if (/^\*?\s*Bước 1:\s*GV chuyển giao/i.test(clean)) return '* Step 1: Task Assignment (Teacher assigns learning tasks)';
-    if (/^\*?\s*Bước 2:\s*HS thực hiện/i.test(clean)) return '* Step 2: Task Execution (Students perform learning tasks)';
-    if (/^\*?\s*Bước 3:\s*Báo cáo/i.test(clean)) return '* Step 3: Reporting & Discussion (Presentation of results)';
-    if (/^\*?\s*Bước 4:\s*Đánh giá/i.test(clean) || /^\*?\s*Bước 4:\s*Nhận xét/i.test(clean)) return '* Step 4: Assessment & Conclusion (Teacher evaluates & concludes)';
-
-    // Common full pedagogical sentences
-    if (/GV yêu cầu HS đọc/i.test(clean)) return 'Teacher requests students to read text in textbook and answer questions.';
-    if (/GV yêu cầu HS chia nhóm/i.test(clean)) return 'Teacher requests students to work in groups of 4-6 and discuss.';
-    if (/HS nghe GV giảng bài/i.test(clean)) return 'Students listen to teacher lecture, receive questions, and discuss.';
-    if (/GV quan sát, hướng dẫn/i.test(clean)) return 'Teacher observes, guides, and assists students during group work.';
-    if (/HS trình bày kết quả/i.test(clean)) return 'Students present group activity results to the class.';
-    if (/GV gọi HS khác nhận xét/i.test(clean)) return 'Teacher calls other students to comment, complement, and assess.';
-    if (/GV đánh giá, nhận xét, chuẩn kiến thức/i.test(clean)) return 'Teacher assesses, concludes, and consolidates core knowledge.';
-    if (/HS ghi chép bài đầy đủ vào vở/i.test(clean)) return 'Students take complete notes into their notebooks.';
-
-    // Dynamic phrase-by-phrase replacement engine
-    let res = clean
-      .replace(/^KẾ HOẠCH BÀI DẠY/gi, 'LESSON PLAN')
-      .replace(/Môn học:\s*/gi, 'Subject: ')
-      .replace(/Lớp:\s*/gi, 'Grade: ')
-      .replace(/Thời gian thực hiện:\s*/gi, 'Duration: ')
-      .replace(/tiết/gi, 'period(s)')
-      .replace(/số báo giảng edu:\s*/gi, 'lesson count: ')
-      .replace(/Giáo viên:\s*/gi, '1. Teacher: ')
-      .replace(/Học sinh:\s*/gi, '2. Students: ')
-      .replace(/Máy chiếu/gi, 'Projector')
-      .replace(/kế hoạch bài dạy/gi, 'lesson plan')
-      .replace(/phiếu học tập/gi, 'learning worksheets')
-      .replace(/Sách giáo khoa/gi, 'Textbook')
-      .replace(/bài tập/gi, 'exercises')
-      .replace(/thảo luận/gi, 'discuss')
-      .replace(/nhóm/gi, 'groups')
-      .replace(/quan sát/gi, 'observe')
-      .replace(/thực hành/gi, 'practice')
-      .replace(/báo cáo/gi, 'report')
-      .replace(/trình bày/gi, 'present')
-      .replace(/nhận xét/gi, 'comment and assess')
-      .replace(/đánh giá/gi, 'evaluate')
-      .replace(/kết luận/gi, 'conclude')
-      .replace(/kết quả/gi, 'results / products')
-      .replace(/nhiệm vụ/gi, 'tasks')
-      .replace(/yêu cầu/gi, 'requests')
-      .replace(/Tin học/gi, 'Computer Science')
-      .replace(/Toán/gi, 'Mathematics')
-      .replace(/Ngữ văn/gi, 'Literature')
-      .replace(/Vật lí/gi, 'Physics')
-      .replace(/Hóa học/gi, 'Chemistry')
-      .replace(/Sinh học/gi, 'Biology')
-      .replace(/Lịch sử/gi, 'History')
-      .replace(/Địa lí/gi, 'Geography')
-      .replace(/Khởi động/gi, 'Warm-up')
-      .replace(/Năng lực tự chủ, tự học/gi, 'Self-reliance and self-learning competency')
-      .replace(/Năng lực giao tiếp và hợp tác/gi, 'Communication and collaboration competency')
-      .replace(/Năng lực giải quyết vấn đề và sáng tạo/gi, 'Problem solving and creativity competency')
-      .replace(/Năng lực Tin học/gi, 'Digital & Computer Science competency')
-      .replace(/Phẩm chất/gi, 'Qualities')
-      .replace(/Chăm chỉ/gi, 'Diligence')
-      .replace(/Trung thực/gi, 'Honesty')
-      .replace(/Giáo viên/gi, 'Teacher')
-      .replace(/Học sinh/gi, 'Students')
-      .replace(/thực hiện/gi, 'perform')
-      .replace(/trả lời/gi, 'answer')
-      .replace(/câu hỏi/gi, 'questions')
-      .replace(/hoàn thành/gi, 'complete');
-
-    // If string still contains Vietnamese non-ASCII characters, translate structural keywords and format
-    if (/[àáảãạăắằẳẵặâấầẩẫậèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵđ]/i.test(res)) {
-      // Intelligent fallback translation pattern based on line type
-      if (/^\d+\./.test(clean)) {
-        return `Item ${clean.split('.')[0]}: Students analyze textbook information and solve exercises.`;
-      }
-      if (/^[-+*•]/.replace(/^\s*/, '').test(clean)) {
-        return `- Students perform the assigned activity according to the teacher's instructions.`;
-      }
-      return `Students complete the learning activity: ${clean.slice(0, 40)}...`;
-    }
-
-    return res;
+    return `[EN] ${clean}`;
   };
 
-  const handleTranslateAll = () => performTranslation(currentDoc.nodes);
+  const handleTranslateAll = () => {
+    performTranslation(currentDoc.nodes);
+  };
 
   const handleReset = () => {
     if (confirm('Khôi phục bản tiếng Việt gốc và làm mới trang xem trước?')) {
@@ -513,7 +525,6 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
     }
   };
 
-  // Update node text
   const handleUpdateNodeContent = (
     id: string,
     field: 'contentVi' | 'contentEn',
@@ -547,22 +558,26 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
   };
 
   return (
-    <div className="app-main">
+    <div className="app-main flex flex-col lg:flex-row gap-6">
       {/* LEFT COLUMN: SIDEBAR CONFIGURATION PANEL */}
-      <aside className="settings-sidebar card">
-        <div className="card-header">
+      <aside className="settings-sidebar card w-full lg:w-80 shrink-0 space-y-6">
+        <div className="card-header flex items-center space-x-2 border-b border-slate-200 dark:border-slate-800 pb-3">
           <Sliders className="w-5 h-5 text-indigo-500" />
-          <h2>Cấu Hình Dịch Thuật</h2>
+          <h2 className="text-sm font-bold text-slate-900 dark:text-white">Cấu Hình Dịch Thuật</h2>
         </div>
 
-        <div className="card-body">
+        <div className="card-body space-y-5">
           {/* Gemini API Key Section */}
-          <div className="form-group">
-            <label>
+          <div className="form-group space-y-1.5">
+            <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center justify-between">
               <span>Gemini API Key</span>
-              <span className="tooltip" data-tooltip="Khóa API lưu an toàn trên trình duyệt của bạn.">
-                <HelpCircle className="w-4 h-4 text-slate-400 inline" />
-              </span>
+              <button
+                type="button"
+                onClick={onOpenApiKeyModal}
+                className="text-[11px] text-red-600 dark:text-red-400 font-bold hover:underline"
+              >
+                Lấy API Key
+              </button>
             </label>
 
             <div className="relative flex items-center">
@@ -574,8 +589,8 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
                   setApiKey(val);
                   localStorage.setItem(API_KEY_STORAGE, val);
                 }}
-                placeholder="Nhập API Key (AIzaSy... hoặc AQ...)"
-                className="form-input pr-9"
+                placeholder="Nhập API Key (AIzaSy...)"
+                className="w-full px-3 py-2 text-xs rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 outline-none pr-8"
               />
               <button
                 type="button"
@@ -587,85 +602,92 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
               </button>
             </div>
 
-            <div className="flex items-center justify-between text-xs mt-1">
+            <div className="flex items-center justify-between text-[11px] pt-1">
               {apiKey ? (
-                <span className="badge badge-success">Đã thiết lập</span>
+                <span className="text-emerald-600 dark:text-emerald-400 font-bold">✓ Đã thiết lập Key</span>
               ) : (
-                <span className="badge badge-warning">Chưa thiết lập</span>
+                <span className="text-amber-600 dark:text-amber-400 font-bold">⚠ Chưa cài API Key</span>
               )}
-              <a
-                href="https://aistudio.google.com/apikey"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="link-small flex items-center gap-1"
-              >
-                Lấy Key miễn phí <ExternalLink className="w-3 h-3" />
-              </a>
             </div>
           </div>
 
           {/* Mode Switcher: Mock vs Gemini AI */}
-          <div className="form-group">
-            <label>Chế độ dịch</label>
-            <div className="radio-group-toggle">
-              <label
-                className={`radio-toggle-label ${
-                  translationMode === 'mock' ? 'active' : ''
+          <div className="form-group space-y-1.5">
+            <label className="text-xs font-bold text-slate-700 dark:text-slate-300">Chế độ dịch</label>
+            <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
+              <button
+                type="button"
+                className={`py-1.5 px-3 rounded-lg text-xs font-bold transition-all ${
+                  translationMode === 'mock'
+                    ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400'
                 }`}
                 onClick={() => {
                   setTranslationMode('mock');
                   handleUpdateConfig({ aiMode: 'fast' });
                 }}
               >
-                <span>Chạy Thử (Mock)</span>
-              </label>
+                Chạy Thử (Mock)
+              </button>
 
-              <label
-                className={`radio-toggle-label ${
-                  translationMode === 'ai' ? 'active' : ''
+              <button
+                type="button"
+                className={`py-1.5 px-3 rounded-lg text-xs font-bold transition-all ${
+                  translationMode === 'ai'
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400'
                 }`}
                 onClick={() => {
                   setTranslationMode('ai');
                   if (!apiKey) onOpenApiKeyModal();
                 }}
               >
-                <span>Dịch AI (Gemini)</span>
-              </label>
+                Dịch AI (Gemini)
+              </button>
             </div>
           </div>
 
           {/* Gemini AI Models */}
           {translationMode === 'ai' && (
-            <div className="form-group">
-              <label>Mô hình AI</label>
-              <div className="space-y-2">
+            <div className="form-group space-y-1.5">
+              <label className="text-xs font-bold text-slate-700 dark:text-slate-300">Mô hình AI</label>
+              <div className="space-y-1.5">
                 {[
                   {
-                    id: 'gemini-2.5-flash',
-                    title: 'gemini-2.5-flash ⚡',
-                    desc: 'Cân bằng tối ưu giữa chi phí và tốc độ dịch thuật.',
+                    id: 'gemini-3-flash-preview',
+                    title: 'gemini-3-flash-preview 🚀',
+                    desc: 'Frontier model 2026, tốt nhất cho reasoning & thuật ngữ.',
                   },
                   {
                     id: 'gemini-2.5-pro',
                     title: 'gemini-2.5-pro 💎',
-                    desc: 'Chất lượng dịch thuật chuyên sâu tốt nhất cho chuyên môn.',
+                    desc: 'Chất lượng cao nhất cho giáo án độ dài lớn.',
                   },
                   {
-                    id: 'gemini-1.5-flash',
-                    title: 'gemini-1.5-flash 💨',
-                    desc: 'Siêu nhẹ, dịch cực nhanh và tiết kiệm token.',
+                    id: 'gemini-2.5-flash',
+                    title: 'gemini-2.5-flash ⚡',
+                    desc: 'Cân bằng giữa tốc độ và quota tài khoản.',
+                  },
+                  {
+                    id: 'gemini-2.5-flash-lite',
+                    title: 'gemini-2.5-flash-lite 💨',
+                    desc: 'Siêu nhẹ, dịch nhanh và tiết kiệm token.',
                   },
                 ].map((m) => (
                   <div
                     key={m.id}
-                    onClick={() => setSelectedModel(m.id)}
-                    className={`radio-card ${selectedModel === m.id ? 'active' : ''}`}
+                    onClick={() => {
+                      setSelectedModel(m.id);
+                      localStorage.setItem(SELECTED_MODEL_STORAGE, m.id);
+                    }}
+                    className={`p-2.5 rounded-xl border text-xs cursor-pointer transition-all ${
+                      selectedModel === m.id
+                        ? 'border-blue-600 bg-blue-50/50 dark:bg-blue-950/40 text-blue-900 dark:text-blue-100 font-bold'
+                        : 'border-slate-200 dark:border-slate-800 hover:border-slate-300'
+                    }`}
                   >
-                    <div className="radio-card-dot" />
-                    <div className="radio-card-content">
-                      <div className="radio-title">{m.title}</div>
-                      <div className="radio-desc">{m.desc}</div>
-                    </div>
+                    <div className="font-bold">{m.title}</div>
+                    <div className="text-[10px] text-slate-500 font-normal">{m.desc}</div>
                   </div>
                 ))}
               </div>
@@ -673,14 +695,12 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
           )}
 
           {/* Subject Selection */}
-          <div className="form-group">
-            <label>Môn học</label>
+          <div className="form-group space-y-1.5">
+            <label className="text-xs font-bold text-slate-700 dark:text-slate-300">Môn học</label>
             <select
               value={currentDoc.subject}
-              onChange={(e) =>
-                handleUpdateConfig({ subject: e.target.value as Subject })
-              }
-              className="form-select"
+              onChange={(e) => handleUpdateConfig({ subject: e.target.value as Subject })}
+              className="w-full px-3 py-2 text-xs rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 outline-none"
             >
               {(SUBJECTS_BY_LEVEL[currentDoc.level] || SUBJECTS_BY_LEVEL.thcs).map((s) => (
                 <option key={s.value} value={s.value}>
@@ -691,9 +711,9 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
           </div>
 
           {/* Level & Grade */}
-          <div className="form-row">
-            <div className="form-group flex-1">
-              <label>Cấp học</label>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="form-group space-y-1.5">
+              <label className="text-xs font-bold text-slate-700 dark:text-slate-300">Cấp học</label>
               <select
                 value={currentDoc.level}
                 onChange={(e) => {
@@ -706,7 +726,7 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
                     grade: availableGrades[0]?.value || 'lop1',
                   });
                 }}
-                className="form-select"
+                className="w-full px-3 py-2 text-xs rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 outline-none"
               >
                 <option value="mam_non">Mầm non</option>
                 <option value="tieu_hoc">Tiểu học</option>
@@ -716,12 +736,12 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
               </select>
             </div>
 
-            <div className="form-group flex-1">
-              <label>Lớp</label>
+            <div className="form-group space-y-1.5">
+              <label className="text-xs font-bold text-slate-700 dark:text-slate-300">Lớp</label>
               <select
                 value={currentDoc.grade || 'lop8'}
                 onChange={(e) => handleUpdateConfig({ grade: e.target.value })}
-                className="form-select"
+                className="w-full px-3 py-2 text-xs rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 outline-none"
               >
                 {(GRADES_BY_LEVEL[currentDoc.level] || GRADES_BY_LEVEL.thcs).map((g) => (
                   <option key={g.value} value={g.value}>
@@ -732,161 +752,109 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
             </div>
           </div>
 
-          {/* Bilingual Layout Style */}
-          <div className="form-group">
-            <label>Kiểu hiển thị song ngữ</label>
-            <div className="space-y-2">
-              {[
-                {
-                  id: 'parallel',
-                  title: 'Đoạn song song (Kiểu 1)',
-                  desc: 'Mỗi đoạn tiếng Việt ở trên, bản dịch tiếng Anh in nghiêng nằm ngay bên dưới.',
-                },
-                {
-                  id: 'two_column',
-                  title: 'Bảng 2 cột (Kiểu 2)',
-                  desc: 'Chuyển toàn bộ nội dung giáo án thành bảng 2 cột: Trái tiếng Việt - Phải tiếng Anh.',
-                },
-                {
-                  id: 'section',
-                  title: 'Theo mục lớn (Kiểu 3)',
-                  desc: 'Giữ nguyên giáo án tiếng Việt, chèn thêm bản tiếng Anh ngay sau mỗi phần chính.',
-                },
-              ].map((styleOpt) => (
-                <div
-                  key={styleOpt.id}
-                  onClick={() => {
-                    setBilingualStyle(styleOpt.id as BilingualStyle);
-                    handleUpdateConfig({});
-                  }}
-                  className={`radio-card ${
-                    bilingualStyle === styleOpt.id ? 'active' : ''
-                  }`}
-                >
-                  <div className="radio-card-dot" />
-                  <div className="radio-card-content">
-                    <div className="radio-title">{styleOpt.title}</div>
-                    <div className="radio-desc">{styleOpt.desc}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
           {/* Translation Tone */}
-          <div className="form-group">
-            <label>Phong cách dịch thuật</label>
+          <div className="form-group space-y-1.5">
+            <label className="text-xs font-bold text-slate-700 dark:text-slate-300">Phong cách dịch</label>
             <select
               value={translationTone}
-              onChange={(e) =>
-                setTranslationTone(e.target.value as TranslationStyleOption)
-              }
-              className="form-select"
+              onChange={(e) => setTranslationTone(e.target.value as TranslationStyleOption)}
+              className="w-full px-3 py-2 text-xs rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 outline-none"
             >
-              <option value="academic">Dịch sát chuyên ngành (Khuyên dùng)</option>
-              <option value="simple">Dễ hiểu cho học sinh (Từ vựng đơn giản)</option>
-              <option value="formal">Trang trọng (Thích hợp báo cáo, hội thảo)</option>
+              <option value="academic">Dịch sát chuyên ngành GDPT 2018</option>
+              <option value="simple">Dễ hiểu cho học sinh (Simple)</option>
+              <option value="formal">Trang trọng (Formal report)</option>
             </select>
           </div>
         </div>
       </aside>
 
       {/* RIGHT COLUMN: MAIN CONTENT & PREVIEW */}
-      <section className="content-area">
+      <section className="content-area flex-1 space-y-6 min-w-0">
         {/* STEPPER */}
-        <div className="stepper card">
-          <div className={`step-item ${currentStep >= 1 ? 'active' : ''} ${currentStep > 1 ? 'completed' : ''}`}>
-            <span className="step-number">1</span>
-            <span className="step-label">Tải giáo án gốc</span>
+        <div className="stepper card flex items-center justify-between p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs">
+          <div className={`flex items-center space-x-2 ${currentStep >= 1 ? 'font-bold text-blue-600' : 'text-slate-400'}`}>
+            <span className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-950 text-blue-600 flex items-center justify-center font-bold text-xs">1</span>
+            <span>Tải giáo án gốc</span>
           </div>
 
-          <div className="step-line" />
+          <div className="h-px bg-slate-200 dark:bg-slate-800 flex-1 mx-3" />
 
-          <div className={`step-item ${currentStep >= 2 ? 'active' : ''} ${currentStep > 2 ? 'completed' : ''}`}>
-            <span className="step-number">2</span>
-            <span className="step-label">Dịch & Xem trước</span>
+          <div className={`flex items-center space-x-2 ${currentStep >= 2 ? 'font-bold text-blue-600' : 'text-slate-400'}`}>
+            <span className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-950 text-blue-600 flex items-center justify-center font-bold text-xs">2</span>
+            <span>Dịch & Xem trước</span>
           </div>
 
-          <div className="step-line" />
+          <div className="h-px bg-slate-200 dark:bg-slate-800 flex-1 mx-3" />
 
-          <div className={`step-item ${currentStep >= 3 ? 'active' : ''}`}>
-            <span className="step-number">3</span>
-            <span className="step-label">Tải file Word song ngữ</span>
+          <div className={`flex items-center space-x-2 ${currentStep >= 3 ? 'font-bold text-emerald-600' : 'text-slate-400'}`}>
+            <span className="w-6 h-6 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-600 flex items-center justify-center font-bold text-xs">3</span>
+            <span>Xuất file Word song ngữ</span>
           </div>
         </div>
 
         {/* FILE UPLOAD ZONE */}
-        <div className="card p-8 text-center space-y-4">
-          <div className="upload-zone" onClick={() => document.getElementById('docx-file-input')?.click()}>
+        <div className="card p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4 text-center">
+          <div className="upload-zone border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-2xl p-8 hover:border-blue-500 transition-colors cursor-pointer" onClick={() => document.getElementById('docx-file-input')?.click()}>
             <input
               id="docx-file-input"
               type="file"
-              accept=".docx"
+              accept=".docx,.pdf"
               onChange={handleFileUpload}
               className="hidden"
             />
-            <div className="w-14 h-14 rounded-full bg-indigo-50 dark:bg-indigo-950/60 flex items-center justify-center text-indigo-500 mx-auto">
-              <FileUp className="w-7 h-7" />
+            <div className="w-12 h-12 rounded-full bg-blue-50 dark:bg-blue-950 text-blue-600 flex items-center justify-center mx-auto mb-3">
+              <FileUp className="w-6 h-6" />
             </div>
-            <h3 className="text-base font-bold text-slate-800 dark:text-slate-100">
-              Kéo thả hoặc nhấp để chọn file giáo án Word (.docx)
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+              Nhấp hoặc kéo thả file Word (.docx) hoặc PDF bài dạy vào đây
             </h3>
-            <p className="text-xs text-slate-400">
-              Chấp nhận định dạng Word .docx — Tự động bảo lưu 100% độ rộng cột, bảng & công thức toán
+            <p className="text-xs text-slate-400 mt-1">
+              Bảo lưu 100% định dạng bảng biểu, công thức toán & hình ảnh
             </p>
-            <button
-              type="button"
-              className="px-5 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-bold transition-all inline-flex items-center space-x-2"
-            >
-              <FolderOpen className="w-4 h-4 text-indigo-500" />
-              <span>Chọn file từ máy tính</span>
-            </button>
           </div>
 
           {currentDoc.nodes.length > 0 && (
-            <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-slate-200 dark:border-slate-800">
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-100 dark:border-slate-800 text-left">
               <div className="flex items-center space-x-3">
-                <FileText className="w-6 h-6 text-indigo-500" />
-                <div className="text-left">
-                  <h4 className="text-xs font-bold text-slate-900 dark:text-white">
-                    {currentDoc.title}
-                  </h4>
-                  <p className="text-[11px] text-slate-400">
-                    {currentDoc.nodes.length} đoạn / phần tử giáo án
-                  </p>
+                <FileText className="w-6 h-6 text-blue-600" />
+                <div>
+                  <h4 className="text-xs font-bold text-slate-900 dark:text-white">{currentDoc.title}</h4>
+                  <p className="text-[11px] text-slate-400">{currentDoc.nodes.length} phần tử giáo án</p>
                 </div>
               </div>
 
-              <div className="flex items-center space-x-3">
+              <div className="flex items-center space-x-2">
                 <button
                   onClick={handleTranslateAll}
                   disabled={isTranslating}
-                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white text-xs font-bold shadow-md transition-all flex items-center space-x-2 disabled:opacity-50"
+                  className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md transition-all flex items-center space-x-1.5 disabled:opacity-50"
                 >
                   <Sparkles className="w-4 h-4 text-amber-300" />
-                  <span>TẠO GIÁO ÁN SONG NGỮ</span>
+                  <span>DỊCH SONG NGỮ AI</span>
                 </button>
               </div>
             </div>
           )}
         </div>
 
-        {/* TRANSLATION PROGRESS CARD */}
-        {(isTranslating || translationProgress) && (
-          <div className="card p-6 space-y-3 bg-indigo-50/50 dark:bg-indigo-950/40 border-indigo-200 dark:border-indigo-800">
-            <div className="flex items-center justify-between text-xs font-bold text-indigo-900 dark:text-indigo-200">
+        {/* TRANSLATION & INTEGRATION PROGRESS CARD */}
+        {(isTranslating || isIntegrating || translationProgress) && (
+          <div className="card p-5 rounded-2xl bg-blue-50/50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 space-y-2">
+            <div className="flex items-center justify-between text-xs font-bold text-blue-900 dark:text-blue-200">
               <span className="flex items-center space-x-2">
                 <Sparkles className="w-4 h-4 text-amber-500 animate-spin" />
                 <span>
-                  Đang dịch thuật giáo án song ngữ ({translationProgress?.current || 0}/{translationProgress?.total || 0} phần tử)...
+                  {isIntegrating
+                    ? 'AI đang phân tích và tích hợp Năng lực số & AI (QĐ 3439/QĐ-BGDĐT)...'
+                    : `Đang dịch thuật giáo án song ngữ (${translationProgress?.current || 0}/${translationProgress?.total || 0} phần tử)...`}
                 </span>
               </span>
               <span>{translationProgress?.pct || 0}%</span>
             </div>
 
-            <div className="progress-bar-wrapper">
+            <div className="w-full h-2 rounded-full bg-blue-200 dark:bg-blue-900 overflow-hidden">
               <div
-                className="progress-bar-fill"
+                className="h-full bg-blue-600 transition-all duration-300"
                 style={{ width: `${translationProgress?.pct || 0}%` }}
               />
             </div>
@@ -895,150 +863,187 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
 
         {/* PREVIEW PANEL */}
         {currentDoc.nodes.length > 0 && (
-          <div className="card flex flex-col overflow-hidden">
-            {/* Preview Header & Tabs */}
-            <div className="preview-header border-b border-slate-200 dark:border-slate-800">
+          <div className="card rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden flex flex-col">
+            {/* Action Bar Header */}
+            <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 bg-slate-50/50 dark:bg-slate-900/50">
               <div className="flex items-center space-x-2">
-                <FileText className="w-4 h-4 text-indigo-500" />
-                <h2 className="text-sm font-bold text-slate-900 dark:text-white">
-                  Xem Trước Giáo Án
-                </h2>
-              </div>
-
-              <div className="preview-tabs">
+                <button
+                  onClick={() => setPreviewTab('bilingual')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                    previewTab === 'bilingual'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                  }`}
+                >
+                  Bản dịch song ngữ
+                </button>
                 <button
                   onClick={() => setPreviewTab('source')}
-                  className={`tab-btn ${previewTab === 'source' ? 'active' : ''}`}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                    previewTab === 'source'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                  }`}
                 >
-                  Bản gốc (Tiếng Việt)
+                  Bản gốc tiếng Việt
+                </button>
+              </div>
+
+              {/* Quick Action Tools */}
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => onSaveToLibrary(currentDoc)}
+                  className="px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-bold text-xs hover:bg-emerald-100 border border-emerald-200 dark:border-emerald-800 transition-colors flex items-center space-x-1"
+                  title="Lưu bản dịch này vào Thư viện"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>Lưu Thư viện</span>
                 </button>
 
                 <button
-                  onClick={() => setPreviewTab('bilingual')}
-                  className={`tab-btn ${previewTab === 'bilingual' ? 'active' : ''}`}
+                  onClick={handleIntegrateNLSAndAI}
+                  disabled={isIntegrating}
+                  className="px-3 py-1.5 rounded-xl bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 font-bold text-xs hover:bg-purple-100 border border-purple-200 dark:border-purple-800 transition-colors flex items-center space-x-1"
+                  title="AI tự động tích hợp Năng lực số & AI theo QĐ 3439"
                 >
-                  Bản dịch song ngữ
+                  <Zap className="w-3.5 h-3.5 text-purple-500" />
+                  <span>Tích hợp NLS/AI (QĐ 3439)</span>
+                </button>
+
+                <button
+                  onClick={handleCopyToClipboard}
+                  className="px-3 py-1.5 rounded-xl bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-bold text-xs hover:bg-slate-300 transition-colors flex items-center space-x-1"
+                  title="Sao chép toàn bộ nội dung song ngữ"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>Sao chép</span>
+                </button>
+
+                <button
+                  onClick={() => setIsQualityOpen(true)}
+                  className="px-3 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 font-bold text-xs hover:bg-amber-100 border border-amber-200 dark:border-amber-800 transition-colors flex items-center space-x-1"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  <span>Soát lỗi AI</span>
                 </button>
               </div>
             </div>
 
             {/* Document Sheet View */}
-            <div className="preview-pane-wrapper">
-              <div className="document-container">
-                {currentDoc.nodes.map((node) => {
-                  const isSelected = selectedNodeId === node.id;
-                  const isHeader =
-                    node.type === 'heading1' ||
-                    node.type === 'heading2' ||
-                    node.type === 'heading3' ||
-                    node.type === 'title' ||
-                    /^(I|II|III|IV|V|VI|VII|VIII|IX|X|\d+|[A-Z])[\.\:]\s*/i.test((node.contentVi || '').trim());
+            <div className="p-6 sm:p-8 max-h-[600px] overflow-y-auto font-['Times_New_Roman',_Times,_serif] text-[13pt] leading-relaxed space-y-3">
+              {currentDoc.nodes.map((node) => {
+                const isSelected = selectedNodeId === node.id;
+                const isHeader =
+                  node.type === 'heading1' ||
+                  node.type === 'heading2' ||
+                  node.type === 'heading3' ||
+                  node.type === 'title' ||
+                  /^(I|II|III|IV|V|VI|VII|VIII|IX|X|\d+|[A-Z])[\.\:]\s*/i.test((node.contentVi || '').trim());
 
-                  if (node.type === 'table' && node.tableRows) {
-                    return (
-                      <div
-                        key={node.id}
-                        onClick={() => setSelectedNodeId(node.id)}
-                        className={`my-3 p-2 rounded-xl transition-all cursor-pointer ${
-                          isSelected ? 'ring-2 ring-indigo-500 bg-indigo-50/20' : ''
-                        }`}
-                      >
-                        <table className="w-full border-collapse border border-slate-300 dark:border-slate-700 text-[13pt] font-['Times_New_Roman',_Times,_serif]">
-                          <tbody>
-                            {node.tableRows.map((row) => (
-                              <tr key={row.id}>
-                                {row.cells.map((cell) => (
-                                  <td
-                                    key={cell.id}
-                                    className={`border border-slate-300 dark:border-slate-700 p-2.5 vertical-top ${
-                                      cell.isHeader
-                                        ? 'bg-slate-100 dark:bg-slate-800 font-bold'
-                                        : ''
-                                    }`}
-                                  >
-                                    {cell.imageData && (
-                                      <img
-                                        src={cell.imageData}
-                                        alt="Diagram"
-                                        className="max-w-[220px] max-h-[160px] my-1 rounded border border-slate-200 mx-auto block"
-                                      />
-                                    )}
-                                    <div className="text-slate-900 dark:text-slate-100">
-                                      {cell.contentVi}
-                                    </div>
-
-                                    {previewTab === 'bilingual' && (
-                                      <input
-                                        type="text"
-                                        placeholder="+ Dịch tiếng Anh..."
-                                        value={cell.contentEn || ''}
-                                        onChange={(e) =>
-                                          handleUpdateTableCell(
-                                            node.id,
-                                            row.id,
-                                            cell.id,
-                                            'contentEn',
-                                            e.target.value
-                                          )
-                                        }
-                                        className="w-full bg-transparent italic text-[#003399] dark:text-sky-400 font-normal focus:outline-none focus:ring-1 focus:ring-indigo-400 rounded px-1 mt-1 text-[13pt] font-['Times_New_Roman',_Times,_serif]"
-                                      />
-                                    )}
-                                  </td>
-                                ))}
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    );
-                  }
-
+                if (node.type === 'table' && node.tableRows) {
                   return (
                     <div
                       key={node.id}
                       onClick={() => setSelectedNodeId(node.id)}
-                      className={`my-2 p-2 rounded-xl transition-all cursor-pointer ${
-                        isSelected ? 'ring-2 ring-indigo-500 bg-indigo-50/20' : ''
+                      className={`my-3 p-2 rounded-xl transition-all cursor-pointer ${
+                        isSelected ? 'ring-2 ring-blue-500 bg-blue-50/20' : ''
                       }`}
                     >
-                      {node.imageData && (
-                        <img
-                          src={node.imageData}
-                          alt="Illustration"
-                          className="max-w-[300px] max-h-[200px] my-2 rounded border border-slate-200 mx-auto block"
-                        />
-                      )}
-                      <div
-                        className={`text-slate-900 dark:text-slate-100 text-[13pt] font-['Times_New_Roman',_Times,_serif] ${
-                          isHeader ? 'font-bold' : 'font-normal'
-                        }`}
-                      >
-                        {node.contentVi}
-                      </div>
+                      <table className="w-full border-collapse border border-slate-300 dark:border-slate-700">
+                        <tbody>
+                          {node.tableRows.map((row) => (
+                            <tr key={row.id}>
+                              {row.cells.map((cell) => (
+                                <td
+                                  key={cell.id}
+                                  className={`border border-slate-300 dark:border-slate-700 p-2.5 align-top ${
+                                    cell.isHeader
+                                      ? 'bg-slate-100 dark:bg-slate-800 font-bold'
+                                      : ''
+                                  }`}
+                                >
+                                  {cell.imageData && (
+                                    <img
+                                      src={cell.imageData}
+                                      alt="Diagram"
+                                      className="max-w-[220px] max-h-[160px] my-1 rounded border border-slate-200 mx-auto block"
+                                    />
+                                  )}
+                                  <div className="text-slate-900 dark:text-slate-100">
+                                    {cell.contentVi}
+                                  </div>
 
-                      {previewTab === 'bilingual' && (
-                        <textarea
-                          rows={Math.ceil((node.contentEn || '').length / 60) || 1}
-                          placeholder="+ Tiếng Anh (Màu xanh đậm #003399, In nghiêng)..."
-                          value={node.contentEn || ''}
-                          onChange={(e) =>
-                            handleUpdateNodeContent(node.id, 'contentEn', e.target.value)
-                          }
-                          className="w-full bg-transparent italic text-[#003399] dark:text-sky-400 font-normal focus:outline-none focus:ring-1 focus:ring-indigo-400 rounded px-1 mt-1 text-[13pt] font-['Times_New_Roman',_Times,_serif] resize-none"
-                        />
-                      )}
+                                  {previewTab === 'bilingual' && (
+                                    <input
+                                      type="text"
+                                      placeholder="+ Dịch tiếng Anh..."
+                                      value={cell.contentEn || ''}
+                                      onChange={(e) =>
+                                        handleUpdateTableCell(
+                                          node.id,
+                                          row.id,
+                                          cell.id,
+                                          'contentEn',
+                                          e.target.value
+                                        )
+                                      }
+                                      className="w-full bg-transparent italic text-[#003399] dark:text-sky-400 font-normal focus:outline-none focus:ring-1 focus:ring-blue-400 rounded px-1 mt-1 text-[13pt]"
+                                    />
+                                  )}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                   );
-                })}
-              </div>
+                }
+
+                return (
+                  <div
+                    key={node.id}
+                    onClick={() => setSelectedNodeId(node.id)}
+                    className={`my-2 p-2 rounded-xl transition-all cursor-pointer ${
+                      isSelected ? 'ring-2 ring-blue-500 bg-blue-50/20' : ''
+                    }`}
+                  >
+                    {node.imageData && (
+                      <img
+                        src={node.imageData}
+                        alt="Illustration"
+                        className="max-w-[300px] max-h-[200px] my-2 rounded border border-slate-200 mx-auto block"
+                      />
+                    )}
+                    <div
+                      className={`${
+                        node.isIntegrated ? 'text-red-600 dark:text-red-400 font-bold' : 'text-slate-900 dark:text-slate-100'
+                      } ${isHeader ? 'font-bold' : 'font-normal'}`}
+                    >
+                      {node.contentVi}
+                    </div>
+
+                    {previewTab === 'bilingual' && (
+                      <textarea
+                        rows={Math.ceil((node.contentEn || '').length / 60) || 1}
+                        placeholder="+ Tiếng Anh (Màu xanh đậm #003399, In nghiêng)..."
+                        value={node.contentEn || ''}
+                        onChange={(e) =>
+                          handleUpdateNodeContent(node.id, 'contentEn', e.target.value)
+                        }
+                        className="w-full bg-transparent italic text-[#003399] dark:text-sky-400 font-normal focus:outline-none focus:ring-1 focus:ring-blue-400 rounded px-1 mt-1 text-[13pt] resize-none"
+                      />
+                    )}
+                  </div>
+                );
+              })}
             </div>
 
             {/* Footer Action Bar */}
-            <div className="preview-actions">
+            <div className="p-4 border-t border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 bg-slate-50/50 dark:bg-slate-900/50">
               <button
                 onClick={handleReset}
-                className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold transition-all flex items-center space-x-1.5"
+                className="px-4 py-2 rounded-xl bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 text-slate-700 dark:text-slate-300 text-xs font-bold transition-all flex items-center space-x-1.5"
               >
                 <RotateCcw className="w-4 h-4 text-slate-500" />
                 <span>Làm lại</span>
@@ -1055,22 +1060,12 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
           </div>
         )}
 
-        {/* WARNING & TIPS CARD */}
-        <div className="card alert-card card-warning p-6 space-y-3">
-          <div className="flex items-center space-x-2 text-amber-600 dark:text-amber-400 font-bold text-sm">
-            <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
-            <h3>Lưu ý quan trọng cho Giáo viên</h3>
-          </div>
-
-          <ul className="text-xs text-slate-600 dark:text-slate-400 space-y-2 list-disc pl-5 leading-relaxed">
-            <li>
-              <strong>Kiểm duyệt bản dịch:</strong> Bản dịch do trí tuệ nhân tạo (AI) thực hiện chỉ mang tính chất hỗ trợ chuyên môn. Kính mong thầy/cô duyệt lại toàn bộ thuật ngữ chuyên ngành trước khi sử dụng giảng dạy chính thức.
-            </li>
-            <li>
-              <strong>Bảo lưu định dạng:</strong> Các bảng biểu, công thức toán học (MathType) và hình ảnh được bảo toàn 100% cấu trúc khi tải về Word (.docx).
-            </li>
-          </ul>
-        </div>
+        {/* Quality Audit Modal */}
+        <QualityAuditModal
+          isOpen={isQualityOpen}
+          onClose={() => setIsQualityOpen(false)}
+          nodes={currentDoc.nodes}
+        />
       </section>
     </div>
   );

@@ -47,7 +47,6 @@ async function generateContentWithRetry(ai: GoogleGenAI, params: any, retries = 
           console.warn(`[Gemini API] Rate limit hit on ${model}, retrying in ${delayMs * (attempt + 1)}ms...`);
           await new Promise((r) => setTimeout(r, delayMs * (attempt + 1)));
         } else {
-          // If not rate limit or max retries reached for this model, break and try fallback model
           break;
         }
       }
@@ -71,7 +70,6 @@ app.post("/api/translate", async (req, res) => {
       return res.status(400).json({ error: "Missing or invalid 'items' array." });
     }
 
-    // Use custom API key if passed from client, else fall back to server env
     let ai: GoogleGenAI;
     const clientKey = userApiKey || req.headers["x-gemini-api-key"];
     if (clientKey && typeof clientKey === "string" && clientKey.trim().length > 10) {
@@ -164,6 +162,65 @@ QUY TẮC PHẢN HỒI:
     res.status(500).json({
       error: error.message || "Failed to process translation with Gemini API.",
     });
+  }
+});
+
+// AI Digital & AI Competency Integration API Endpoint (QĐ 3439/QĐ-BGDĐT)
+app.post("/api/integrate-nls-ai", async (req, res) => {
+  try {
+    const { nodes, subject, level, userApiKey } = req.body;
+    if (!nodes || !Array.isArray(nodes)) {
+      return res.status(400).json({ error: "Missing 'nodes' array." });
+    }
+
+    let ai: GoogleGenAI;
+    const clientKey = userApiKey || req.headers["x-gemini-api-key"];
+    if (clientKey && typeof clientKey === "string" && clientKey.trim().length > 10) {
+      ai = new GoogleGenAI({
+        apiKey: clientKey.trim(),
+        httpOptions: { headers: { "User-Agent": "aistudio-build" } },
+      });
+    } else {
+      ai = getGeminiClient();
+    }
+
+    const systemInstruction = `
+Bạn là chuyên gia giáo dục số của Bộ GD&ĐT Việt Nam, am hiểu khung Năng lực số (NLS) và Khung Năng lực AI cho học sinh theo Quyết định 3439/QĐ-BGDĐT.
+Nhiệm vụ của bạn là phân tích các phần/hoạt động học tập trong bài dạy, và bổ sung hợp lý 1-2 câu ứng dụng công cụ số (GeoGebra, PhET, Kahoot, Canva, Google Docs, AI Gemini/ChatGPT) vào mục Tiêu/Tổ chức thực hiện của bài dạy.
+
+YÊU CẦU TRẢ VỀ:
+Trả về JSON chứa mảng các phần tử được cập nhật:
+[
+  {
+    "id": "node_id",
+    "contentVi": "nội dung tiếng Việt đã bổ sung NLS/AI",
+    "contentEn": "English translation for added digital integration",
+    "isIntegrated": true,
+    "integrationType": "nls" | "ai_3439"
+  }
+]
+`;
+
+    const prompt = `
+Phân tích và gợi ý tích hợp Năng lực số / AI QĐ 3439 cho bài dạy môn ${subject || "chung"} cấp ${level || "THCS"}:
+DANH SÁCH NODES:
+${JSON.stringify(nodes.slice(0, 20), null, 2)}
+`;
+
+    const response = await generateContentWithRetry(ai, {
+      model: "gemini-2.5-flash",
+      contents: prompt,
+      config: {
+        systemInstruction,
+        responseMimeType: "application/json",
+      },
+    });
+
+    const jsonResult = JSON.parse(response.text || "[]");
+    res.json({ integratedNodes: Array.isArray(jsonResult) ? jsonResult : [] });
+  } catch (error: any) {
+    console.error("NLS/AI Integration API Error:", error);
+    res.status(500).json({ error: error.message || "Failed to process NLS/AI integration." });
   }
 });
 

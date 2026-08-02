@@ -109,6 +109,38 @@ async function parsePdfToNodes(file: File): Promise<PlanNode[]> {
   return parseRawTextToNodes(fullText);
 }
 
+function detectCV5512Header(text: string): { isHeader: boolean; type: NodeType; isBold: boolean; fontSize: number } {
+  const upper = text.toUpperCase().trim();
+  if (
+    upper.startsWith('KẾ HOẠCH BÀI DẠY') ||
+    upper.startsWith('GIÁO ÁN') ||
+    upper.startsWith('BÀI HỌC:') ||
+    upper.startsWith('TÊN BÀI DẠY:')
+  ) {
+    return { isHeader: true, type: 'title', isBold: true, fontSize: 16 };
+  }
+
+  if (
+    /^(I|II|III|IV|V|VI|VII)\./.test(upper) ||
+    upper.startsWith('MỤC TIÊU') ||
+    upper.startsWith('THIẾT BỊ DẠY HỌC') ||
+    upper.startsWith('TIẾN TRÌNH DẠY HỌC') ||
+    upper.startsWith('HOẠT ĐỘNG')
+  ) {
+    return { isHeader: true, type: 'heading1', isBold: true, fontSize: 14 };
+  }
+
+  if (
+    /^\d+\.\s*(Mục tiêu|Nội dung|Sản phẩm|Tổ chức thực hiện)/i.test(text) ||
+    /^(a|b|c|d)\)\s*(Chuyển giao|Thực hiện|Báo cáo|Kết luận)/i.test(text) ||
+    /^Bước\s*\d+/i.test(text)
+  ) {
+    return { isHeader: true, type: 'heading2', isBold: true, fontSize: 13 };
+  }
+
+  return { isHeader: false, type: 'paragraph', isBold: false, fontSize: 13 };
+}
+
 function parseHtmlToNodes(html: string): PlanNode[] {
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, 'text/html');
@@ -191,24 +223,15 @@ function parseHtmlToNodes(html: string): PlanNode[] {
         tableRows,
       });
     } else {
-      // Paragraph or image paragraph
-      const isHeaderLike =
-        textContent.startsWith('I.') ||
-        textContent.startsWith('II.') ||
-        textContent.startsWith('III.') ||
-        textContent.startsWith('IV.') ||
-        textContent.startsWith('HOẠT ĐỘNG') ||
-        textContent.startsWith('KẾ HOẠCH BÀI DẠY') ||
-        textContent.startsWith('BÀI ');
-
+      const headerInfo = detectCV5512Header(textContent);
       nodes.push({
         id: `pnode-${nodeCount++}`,
-        type: isHeaderLike ? 'heading1' : 'paragraph',
+        type: headerInfo.isHeader ? headerInfo.type : 'paragraph',
         contentVi: textContent,
         contentEn: '',
         imageData,
-        fontSize: isHeaderLike ? 14 : 13,
-        isBold: isHeaderLike,
+        fontSize: headerInfo.fontSize,
+        isBold: headerInfo.isBold,
       });
     }
   }
@@ -226,29 +249,15 @@ function parseRawTextToNodes(text: string): PlanNode[] {
   let count = 1;
 
   for (const line of lines) {
-    let type: NodeType = 'paragraph';
-    let isBold = false;
-    let fontSize = 13;
+    const headerInfo = detectCV5512Header(line);
+    let type: NodeType = headerInfo.type;
+    let isBold = headerInfo.isBold;
+    let fontSize = headerInfo.fontSize;
 
-    if (
-      line.startsWith('KẾ HOẠCH BÀI DẠY') ||
-      line.startsWith('GIÁO ÁN') ||
-      line.startsWith('BÀI HỌC')
-    ) {
-      type = 'title';
-      isBold = true;
-      fontSize = 16;
-    } else if (/^(I|II|III|IV|V|VI|VII)\./.test(line) || line.startsWith('HOẠT ĐỘNG')) {
-      type = 'heading1';
-      isBold = true;
-      fontSize = 14;
-    } else if (/^\d+\./.test(line) || line.startsWith('a)') || line.startsWith('b)')) {
-      type = 'heading2';
-      isBold = line.length < 50;
-      fontSize = 13;
-    } else if (line.startsWith('•') || line.startsWith('-') || line.startsWith('*')) {
+    if (!headerInfo.isHeader && (line.startsWith('•') || line.startsWith('-') || line.startsWith('*'))) {
       type = 'bullet';
       fontSize = 13;
+      isBold = false;
     }
 
     nodes.push({
