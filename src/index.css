@@ -1,60 +1,54 @@
 @import "tailwindcss";
 
 /* ==========================================================================
-   DESIGN SYSTEM & VARIABLES — Inspired by trolysongngupro.vercel.app
+   DESIGN SYSTEM & VARIABLES — Theo chuẩn giaodien.md (Công cụ Giáo viên)
    ========================================================================== */
 :root {
-  --font-primary: 'Inter', system-ui, -apple-system, sans-serif;
-  --font-heading: 'Plus Jakarta Sans', system-ui, sans-serif;
+  --font-primary: 'Be Vietnam Pro', 'Inter', system-ui, -apple-system, sans-serif;
+  --font-heading: 'Be Vietnam Pro', system-ui, sans-serif;
+
+  /* Teal Palette - Công cụ Giáo viên (giaodien.md) */
+  --color-primary: #0d9488;
+  --color-primary-dark: #0f766e;
+  --color-secondary: #f97316;
+  --color-accent: #ec4899;
+  --color-blue: #2563eb;
 
   /* Light Theme */
   --bg-app: #f8fafc;
-  --bg-card: rgba(255, 255, 255, 0.85);
+  --bg-card: rgba(255, 255, 255, 0.9);
   --border-color: #e2e8f0;
-  --border-focus: #6366f1;
+  --border-focus: #0d9488;
   --text-primary: #0f172a;
   --text-secondary: #475569;
-  --text-muted: #94a3b8;
-  --shadow-sm: 0 1px 2px 0 rgba(0,0,0,0.05);
-  --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -2px rgba(0,0,0,0.05);
-  --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.08), 0 4px 6px -4px rgba(0,0,0,0.08);
-  --card-backdrop: blur(12px);
+  --text-muted: #64748b;
+  --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 12px -2px rgba(13, 148, 136, 0.08), 0 2px 6px -1px rgba(0, 0, 0, 0.04);
+  --shadow-lg: 0 12px 24px -4px rgba(13, 148, 136, 0.12), 0 4px 8px -2px rgba(0, 0, 0, 0.06);
+  --card-backdrop: blur(16px);
   --doc-bg: #ffffff;
-  --doc-text: #334155;
-  --doc-border: #e2e8f0;
-  --doc-bilingual-text: #0369a1;
-  --doc-heading: #1e293b;
-  --color-indigo-500: #6366f1;
-  --color-indigo-600: #4f46e5;
-  --color-purple-500: #8b5cf6;
-  --color-emerald-500: #10b981;
-  --color-emerald-600: #059669;
-  --color-amber-500: #f59e0b;
-  --color-amber-600: #d97706;
-  --color-rose-500: #f43f5e;
+  --doc-text: #1e293b;
+  --doc-border: #cbd5e1;
+  --doc-bilingual-text: #003399; /* Standard MOET Blue #003399 */
 }
 
 .dark {
-  --bg-app: #080710;
-  --bg-card: rgba(17, 24, 39, 0.7);
-  --border-color: rgba(255,255,255,0.08);
-  --text-primary: #f1f5f9;
-  --text-secondary: #94a3b8;
+  --bg-app: #090d16;
+  --bg-card: rgba(15, 23, 42, 0.85);
+  --border-color: rgba(255, 255, 255, 0.1);
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
   --text-muted: #64748b;
-  --shadow-sm: 0 1px 2px 0 rgba(0,0,0,0.5);
-  --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.3), 0 2px 4px -2px rgba(0,0,0,0.3);
-  --shadow-lg: 0 10px 25px -5px rgba(0,0,0,0.5);
-  --card-backdrop: blur(16px);
+  --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.6);
+  --shadow-md: 0 4px 16px -2px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 12px 30px -5px rgba(0, 0, 0, 0.7);
+  --card-backdrop: blur(20px);
   --doc-bg: #1e293b;
-  --doc-text: #cbd5e1;
+  --doc-text: #f1f5f9;
   --doc-border: #334155;
   --doc-bilingual-text: #38bdf8;
-  --doc-heading: #f8fafc;
 }
 
-/* ==========================================================================
-   BASE
-   ========================================================================== */
 body {
   font-family: var(--font-primary);
   background-color: var(--bg-app);
@@ -65,654 +59,52 @@ body {
 
 .dark body {
   background-image:
-    radial-gradient(circle at 10% 20%, rgba(99,102,241,0.08) 0%, transparent 40%),
-    radial-gradient(circle at 90% 80%, rgba(139,92,246,0.08) 0%, transparent 40%);
+    radial-gradient(circle at 15% 15%, rgba(13, 148, 136, 0.12) 0%, transparent 45%),
+    radial-gradient(circle at 85% 85%, rgba(249, 115, 22, 0.08) 0%, transparent 45%);
   background-attachment: fixed;
 }
 
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-heading);
   font-weight: 700;
+  letter-spacing: -0.015em;
 }
 
-/* ==========================================================================
-   APP LAYOUT
-   ========================================================================== */
-.app-container {
-  max-width: 1400px;
-  margin: 0 auto;
-  padding: 1.5rem;
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-}
-
-/* ==========================================================================
-   HEADER
-   ========================================================================== */
-.app-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 1rem 1.5rem;
+/* Glassmorphism Card Style */
+.card-glass {
   background: var(--bg-card);
   backdrop-filter: var(--card-backdrop);
+  -webkit-backdrop-filter: var(--card-backdrop);
   border: 1px solid var(--border-color);
-  border-radius: 1rem;
+  border-radius: 1.25rem;
   box-shadow: var(--shadow-md);
-}
-
-.header-logo {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.logo-icon-wrapper {
-  width: 2.5rem;
-  height: 2.5rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-indigo-500);
-  filter: drop-shadow(0 0 6px rgba(99,102,241,0.4));
-}
-
-.logo-text h1 {
-  font-size: 1.25rem;
-  line-height: 1.2;
-  background: linear-gradient(135deg, var(--color-indigo-500), var(--color-purple-500));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-.logo-subtitle {
-  font-size: 0.85rem;
-  color: var(--text-secondary);
-  font-weight: 500;
-}
-
-.logo-author {
-  font-size: 0.72rem !important;
-  color: var(--text-muted) !important;
-  margin-top: 0.15rem;
-  font-weight: 400 !important;
-}
-
-.logo-author a {
-  color: var(--color-indigo-500);
-  text-decoration: none;
-  font-weight: 500;
-  transition: color 0.2s ease;
-}
-
-.logo-author a:hover {
-  color: var(--color-purple-500);
-  text-decoration: underline;
-}
-
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-/* ==========================================================================
-   CARDS
-   ========================================================================== */
-.card {
-  background: var(--bg-card);
-  backdrop-filter: var(--card-backdrop);
-  border: 1px solid var(--border-color);
-  border-radius: 1rem;
-  box-shadow: var(--shadow-md);
-  overflow: hidden;
-  transition: box-shadow 0.3s ease;
-}
-
-.card:hover {
-  box-shadow: var(--shadow-lg);
-}
-
-.card-header {
-  padding: 1.25rem 1.5rem;
-  border-bottom: 1px solid var(--border-color);
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.card-header h2 {
-  font-size: 1.1rem;
-  color: var(--text-primary);
-}
-
-.card-body {
-  padding: 1.5rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-}
-
-/* ==========================================================================
-   MAIN LAYOUT
-   ========================================================================== */
-.app-main {
-  display: grid;
-  grid-template-columns: 350px 1fr;
-  gap: 1.5rem;
-  flex-grow: 1;
-}
-
-@media (max-width: 1024px) {
-  .app-main {
-    grid-template-columns: 1fr;
-  }
-}
-
-.content-area {
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-}
-
-/* ==========================================================================
-   BUTTONS
-   ========================================================================== */
-.btn-icon {
-  background: none;
-  border: 1px solid var(--border-color);
-  color: var(--text-primary);
-  padding: 0.5rem;
-  border-radius: 0.5rem;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s ease;
-}
-
-.btn-icon:hover {
-  background-color: rgba(99,102,241,0.05);
-  border-color: var(--text-muted);
-}
-
-/* ==========================================================================
-   FORM CONTROLS
-   ========================================================================== */
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.form-group label {
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--text-primary);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.form-row {
-  display: flex;
-  gap: 1rem;
-}
-
-.form-select {
-  width: 100%;
-  padding: 0.75rem 1rem;
-  border-radius: 0.5rem;
-  border: 1px solid var(--border-color);
-  background-color: rgba(255,255,255,0.03);
-  color: var(--text-primary);
-  font-family: var(--font-primary);
-  font-size: 0.9rem;
-  outline: none;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
-  appearance: auto;
-}
-
-.dark .form-select {
-  background-color: rgba(0,0,0,0.2);
-}
-
-.form-select:focus {
-  border-color: var(--border-focus);
-  box-shadow: 0 0 0 3px rgba(99,102,241,0.15);
-}
-
-.form-input {
-  width: 100%;
-  padding: 0.75rem 1rem;
-  border-radius: 0.5rem;
-  border: 1px solid var(--border-color);
-  background-color: rgba(255,255,255,0.03);
-  color: var(--text-primary);
-  font-family: monospace;
-  font-size: 0.9rem;
-  outline: none;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
-}
-
-.dark .form-input {
-  background-color: rgba(0,0,0,0.2);
-}
-
-.form-input:focus {
-  border-color: var(--border-focus);
-  box-shadow: 0 0 0 3px rgba(99,102,241,0.15);
-}
-
-/* ==========================================================================
-   RADIO TOGGLE (Mode switcher)
-   ========================================================================== */
-.radio-group-toggle {
-  display: flex;
-  border: 1px solid var(--border-color);
-  border-radius: 0.5rem;
-  overflow: hidden;
-  padding: 2px;
-  background-color: rgba(0,0,0,0.03);
-}
-
-.radio-toggle-label {
-  flex: 1;
-  text-align: center;
-  cursor: pointer;
-  padding: 0.5rem;
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--text-secondary);
-  border-radius: 0.4rem;
-  transition: all 0.2s ease;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-}
-
-.radio-toggle-label.active {
-  background-color: var(--color-indigo-500);
-  color: white;
-}
-
-/* ==========================================================================
-   RADIO CARD (Model/Style selection)
-   ========================================================================== */
-.radio-card {
-  display: flex;
-  align-items: flex-start;
-  padding: 0.85rem 1rem;
-  border: 1px solid var(--border-color);
-  border-radius: 0.6rem;
-  cursor: pointer;
-  background-color: rgba(255,255,255,0.02);
-  transition: all 0.2s ease;
-  gap: 0.75rem;
-}
-
-.radio-card:hover {
-  border-color: rgba(99,102,241,0.3);
-  background-color: rgba(99,102,241,0.02);
-}
-
-.radio-card.active {
-  border-color: var(--color-indigo-500);
-  background-color: rgba(99,102,241,0.05);
-  box-shadow: 0 0 10px rgba(99,102,241,0.05);
-}
-
-.radio-card-dot {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  border: 2px solid var(--border-color);
-  margin-top: 2px;
-  flex-shrink: 0;
-  transition: all 0.2s ease;
-  position: relative;
-}
-
-.radio-card.active .radio-card-dot {
-  border-color: var(--color-indigo-500);
-}
-
-.radio-card.active .radio-card-dot::after {
-  content: '';
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background-color: var(--color-indigo-500);
-}
-
-.radio-card-content {
-  display: flex;
-  flex-direction: column;
-}
-
-.radio-title {
-  font-size: 0.88rem;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.radio-desc {
-  font-size: 0.75rem;
-  color: var(--text-secondary);
-  margin-top: 0.15rem;
-  line-height: 1.3;
-}
-
-/* ==========================================================================
-   API STATUS BADGES
-   ========================================================================== */
-.badge {
-  padding: 0.2rem 0.5rem;
-  border-radius: 0.25rem;
-  font-weight: 600;
-  font-size: 0.75rem;
-}
-
-.badge-warning {
-  background-color: rgba(245,158,11,0.15);
-  color: var(--color-amber-600);
-}
-
-.badge-success {
-  background-color: rgba(16,185,129,0.15);
-  color: var(--color-emerald-600);
-}
-
-.link-small {
-  color: var(--color-indigo-500);
-  text-decoration: none;
-  font-weight: 500;
-  font-size: 0.75rem;
-}
-
-.link-small:hover {
-  text-decoration: underline;
-}
-
-/* ==========================================================================
-   STEPPER
-   ========================================================================== */
-.stepper {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 1.25rem 2rem;
-}
-
-.step-item {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  opacity: 0.5;
-  transition: opacity 0.3s ease;
-}
-
-.step-item.active {
-  opacity: 1;
-}
-
-.step-item.completed {
-  opacity: 1;
-}
-
-.step-number {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.75rem;
-  height: 1.75rem;
-  border-radius: 50%;
-  background-color: var(--border-color);
-  color: var(--text-primary);
-  font-weight: 700;
-  font-size: 0.85rem;
-}
-
-.step-item.active .step-number {
-  background-color: var(--color-indigo-500);
-  color: white;
-  box-shadow: 0 0 10px rgba(99,102,241,0.3);
-}
-
-.step-item.completed .step-number {
-  background-color: var(--color-emerald-500);
-  color: white;
-}
-
-.step-label {
-  font-size: 0.9rem;
-  font-weight: 600;
-}
-
-.step-line {
-  flex-grow: 1;
-  height: 2px;
-  background-color: var(--border-color);
-  margin: 0 1.5rem;
-}
-
-/* ==========================================================================
-   UPLOAD ZONE
-   ========================================================================== */
-.upload-zone {
-  width: 100%;
-  border: 2px dashed var(--border-color);
-  border-radius: 0.75rem;
-  padding: 3rem 1.5rem;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 1rem;
-  cursor: pointer;
   transition: all 0.3s ease;
 }
 
-.upload-zone:hover {
-  border-color: var(--color-indigo-500);
-  background-color: rgba(99,102,241,0.02);
+.card-glass:hover {
+  box-shadow: var(--shadow-lg);
 }
 
-/* ==========================================================================
-   PREVIEW
-   ========================================================================== */
-.preview-header {
-  display: flex;
-  flex-direction: row !important;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.75rem 1.5rem !important;
-}
-
-.preview-tabs {
-  display: flex;
-  border: 1px solid var(--border-color);
-  padding: 2px;
-  border-radius: 0.5rem;
-  background-color: rgba(0,0,0,0.05);
-}
-
-.tab-btn {
-  padding: 0.4rem 1rem;
-  font-size: 0.8rem;
-  font-weight: 600;
-  border-radius: 0.4rem;
-  border: none;
-  background: none;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.tab-btn.active {
-  background-color: var(--color-indigo-500);
-  color: white;
-}
-
-.preview-pane-wrapper {
-  background-color: rgba(0,0,0,0.05);
-  padding: 1.5rem;
-  max-height: 500px;
-  overflow-y: auto;
-  border-bottom: 1px solid var(--border-color);
-}
-
-.document-container {
+/* A4 Sheet Paper Simulator */
+.a4-paper-sheet {
   background-color: var(--doc-bg);
   color: var(--doc-text);
   border: 1px solid var(--doc-border);
-  border-radius: 0.5rem;
-  padding: 2rem;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-  min-height: 400px;
+  box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.1), 0 4px 10px -2px rgba(0, 0, 0, 0.05);
+  border-radius: 0.75rem;
+  min-height: 700px;
   font-family: 'Times New Roman', Times, serif;
   font-size: 13pt;
-  overflow-x: auto;
+  line-height: 1.5;
+  margin: 0 auto;
 }
 
-.bilingual-line {
-  color: var(--doc-bilingual-text);
-  font-style: italic;
-  font-size: 0.95em;
-  margin-top: 0.1rem;
+/* Animations */
+@keyframes pulseGlow {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.03); opacity: 0.85; }
 }
 
-.preview-actions {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 1rem 1.5rem;
-}
-
-/* ==========================================================================
-   ALERT / WARNING CARD
-   ========================================================================== */
-.alert-card {
-  border-left: 4px solid var(--color-amber-500);
-}
-
-.alert-card.card-warning {
-  background-color: rgba(245,158,11,0.02);
-}
-
-.dark .alert-card.card-warning {
-  background-color: rgba(245,158,11,0.01);
-}
-
-/* ==========================================================================
-   PROGRESS BAR
-   ========================================================================== */
-.progress-bar-wrapper {
-  height: 8px;
-  background-color: var(--border-color);
-  border-radius: 4px;
-  overflow: hidden;
-}
-
-.progress-bar-fill {
-  height: 100%;
-  background: linear-gradient(90deg, var(--color-indigo-500), var(--color-purple-500));
-  border-radius: 4px;
-  transition: width 0.4s ease;
-  position: relative;
-  overflow: hidden;
-}
-
-.progress-bar-fill::after {
-  content: '';
-  position: absolute;
-  top: 0; right: 0; bottom: 0; left: 0;
-  background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.3) 50%, rgba(255,255,255,0) 100%);
-  animation: progress-sweep 1.5s infinite;
-}
-
-/* ==========================================================================
-   MODAL
-   ========================================================================== */
-.modal-overlay {
-  position: fixed;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background-color: rgba(0,0,0,0.65);
-  backdrop-filter: blur(8px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 2000;
-  animation: fadeIn 0.3s ease;
-}
-
-.modal-content {
-  width: 90%;
-  max-width: 500px;
-  animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-/* ==========================================================================
-   FOOTER
-   ========================================================================== */
-.app-footer {
-  text-align: center;
-  padding: 1.5rem;
-  font-size: 0.8rem;
-  color: var(--text-muted);
-  border-top: 1px solid var(--border-color);
-}
-
-/* ==========================================================================
-   ANIMATIONS
-   ========================================================================== */
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-@keyframes progress-sweep {
-  from { transform: translateX(-100%); }
-  to { transform: translateX(100%); }
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-@keyframes slideUp {
-  from { transform: translateY(20px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
-}
-
-@keyframes headerWarningPulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
-}
-
-.spinner {
-  width: 1.5rem;
-  height: 1.5rem;
-  border: 3px solid rgba(99,102,241,0.15);
-  border-top-color: var(--color-indigo-500);
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-
-@media (max-width: 640px) {
-  .stepper {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.75rem;
-    padding: 1rem;
-  }
-  .step-line {
-    display: none;
-  }
+.animate-glow {
+  animation: pulseGlow 2.5s infinite ease-in-out;
 }

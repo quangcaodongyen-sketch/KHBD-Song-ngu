@@ -45,6 +45,8 @@ import {
   Copy,
   Search,
   Check,
+  Globe,
+  Edit3,
 } from 'lucide-react';
 
 interface EditorViewProps {
@@ -71,9 +73,6 @@ export const EditorView: React.FC<EditorViewProps> = ({
   const [translationTone, setTranslationTone] = useState<TranslationStyleOption>('academic');
   const [apiKey, setApiKey] = useState<string>('');
 
-  // Scope: Full vs Partial
-  const [translationScope, setTranslationScope] = useState<'full' | 'partial'>('full');
-
   // Execution state
   const [isTranslating, setIsTranslating] = useState(false);
   const [isIntegrating, setIsIntegrating] = useState(false);
@@ -86,8 +85,6 @@ export const EditorView: React.FC<EditorViewProps> = ({
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [isCompareOpen, setIsCompareOpen] = useState(false);
   const [isQualityOpen, setIsQualityOpen] = useState(false);
-  const [qualityReport, setQualityReport] = useState<QualityCheckReport | null>(null);
-  const [isAuditing, setIsAuditing] = useState(false);
   const [previewTab, setPreviewTab] = useState<'source' | 'bilingual'>('bilingual');
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
 
@@ -183,7 +180,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
     }
   };
 
-  // Perform Translation with Retry & Model Fallback Chain
+  // Perform Translation with Retry & Live State Accumulation
   const performTranslation = async (targetNodes: PlanNode[]) => {
     const nodesToProcess = targetNodes && targetNodes.length > 0 ? targetNodes : currentDoc.nodes;
 
@@ -213,7 +210,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
 
       setTranslationProgress({ current: 0, total: itemsToTranslate.length, pct: 0 });
 
-      const BATCH_SIZE = 25;
+      const BATCH_SIZE = 20;
       const translationsMap = new Map<string, string>();
 
       for (let i = 0; i < itemsToTranslate.length; i += BATCH_SIZE) {
@@ -221,9 +218,9 @@ export const EditorView: React.FC<EditorViewProps> = ({
         let chunkTransMap = new Map<string, string>();
 
         if (translationMode === 'mock') {
-          await new Promise((r) => setTimeout(r, 400));
+          await new Promise((r) => setTimeout(r, 300));
           chunk.forEach((item) => {
-            chunkTransMap.set(item.id, mockTranslateText(item.text));
+            chunkTransMap.set(item.id, mockTranslateText(item.text, currentDoc.subject));
           });
         } else {
           let apiSuccess = false;
@@ -236,6 +233,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
                 aiMode: currentDoc.aiMode || 'fast',
                 level: currentDoc.level,
                 subject: currentDoc.subject,
+                grade: currentDoc.grade,
                 tone: translationTone,
                 model: selectedModel,
                 userApiKey: apiKey,
@@ -244,14 +242,14 @@ export const EditorView: React.FC<EditorViewProps> = ({
 
             if (res.ok) {
               const data = await res.json();
-              if (Array.isArray(data.items)) {
+              if (Array.isArray(data.items) && data.items.length > 0) {
                 data.items.forEach((item: any) => {
                   if (item.id && item.text) {
                     chunkTransMap.set(item.id, item.text);
                   }
                 });
                 apiSuccess = chunkTransMap.size > 0;
-              } else if (Array.isArray(data.translations)) {
+              } else if (Array.isArray(data.translations) && data.translations.length > 0) {
                 chunk.forEach((item, idx) => {
                   if (data.translations[idx]) {
                     chunkTransMap.set(item.id, data.translations[idx]);
@@ -261,7 +259,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
               }
             }
           } catch (e) {
-            console.warn('Server proxy translation failed, trying direct Gemini API call...', e);
+            console.warn('Server API failed, attempting direct Gemini API call...', e);
           }
 
           if (!apiSuccess && apiKey && apiKey.trim().length > 10) {
@@ -283,7 +281,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
 
           if (!apiSuccess) {
             chunk.forEach((item) => {
-              chunkTransMap.set(item.id, mockTranslateText(item.text));
+              chunkTransMap.set(item.id, mockTranslateText(item.text, currentDoc.subject));
             });
           }
         }
@@ -292,6 +290,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
           translationsMap.set(key, val);
         });
 
+        // Live progressive UI update
         setCurrentDoc((prev) => {
           const updatedNodes = prev.nodes.map((node) => {
             if (node.type === 'table' && node.tableRows) {
@@ -326,11 +325,11 @@ export const EditorView: React.FC<EditorViewProps> = ({
       console.error('Translation error:', err);
     } finally {
       setIsTranslating(false);
-      setTimeout(() => setTranslationProgress(null), 2500);
+      setTimeout(() => setTranslationProgress(null), 2000);
     }
   };
 
-  // Gemini Direct API Call Helper with Fallback Model Chain
+  // Gemini Direct API Helper with Fallback Model Chain
   const translateChunkWithGeminiDirect = async (
     chunkObjects: { id: string; text: string }[],
     userKey: string,
@@ -341,7 +340,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
     tone: string
   ): Promise<Map<string, string>> => {
     const modelsToTry = Array.from(
-      new Set([initialModel, 'gemini-3-flash-preview', 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro'])
+      new Set([initialModel, 'gemini-3-flash-preview', 'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'])
     );
 
     const resultMap = new Map<string, string>();
@@ -350,25 +349,13 @@ export const EditorView: React.FC<EditorViewProps> = ({
     for (const model of modelsToTry) {
       try {
         const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${userKey}`;
-        const promptText = `Bạn là chuyên gia dịch thuật tài liệu giáo dục và soạn bài giảng (Lesson Plan) Việt - Anh hàng đầu cho giáo viên Việt Nam.
-Hãy dịch mảng đối tượng JSON dưới đây từ tiếng Việt sang tiếng Anh cho môn ${subject} cấp ${level} lớp ${grade}.
+        const promptText = `Bạn là chuyên gia dịch thuật tài liệu giáo dục Việt - Anh chuẩn GDPT 2018 cho môn ${subject} cấp ${level} lớp ${grade}.
+Hãy dịch mảng JSON dưới đây sang tiếng Anh thuần túy, không chứa tiếng Việt gốc ở cuối câu:
 
-QUY TẮC DỊCH THUẬT QUAN TRỌNG:
-1. Trả về định dạng JSON là một MẢNG các đối tượng có cấu trúc chính xác như sau: [{"id": "...", "text": "bản dịch tiếng Anh"}]. Only return valid raw JSON array.
-2. Giữ nguyên TOÀN BỘ các mã ID được cung cấp, không được sửa đổi ID.
-3. TUYỆT ĐỐ KHÔNG LẶP LẠI TIẾNG VIỆT GỐC VÀ KHÔNG BỌC NGOẶC ĐƠN (...).
-4. Giữ nguyên công thức toán, số liệu, tên riêng, ký hiệu khoa học.
-5. Với tiêu đề giáo án hoặc các mục chính:
-   - "Mục tiêu" -> "Objectives"
-   - "Nội dung" -> "Content"
-   - "Sản phẩm" -> "Products"
-   - "Tổ chức hoạt động" -> "Implementation / Procedures"
-   - "Hoạt động của giáo viên" -> "Teacher's Activities"
-   - "Hoạt động của học sinh" -> "Students' Activities"
-   - "Khởi động" -> "Warm-up"
-   - "Hình thành kiến thức mới" -> "New Knowledge Formation"
-   - "Luyện tập" -> "Practice"
-   - "Vận dụng" -> "Application"
+1. Trả về đúng mảng JSON dạng: [{"id": "...", "text": "bản dịch tiếng Anh"}].
+2. Giữ nguyên 100% các mã ID.
+3. Không đặt trong ngoặc đơn (...).
+4. Giữ nguyên công thức toán, số liệu, tên riêng.
 
 MẢNG JSON CẦN DỊCH:
 ${JSON.stringify(chunkObjects, null, 2)}`;
@@ -409,9 +396,6 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
       }
     }
 
-    if (resultMap.size === 0 && lastError) {
-      console.error('All model attempts failed:', lastError);
-    }
     return resultMap;
   };
 
@@ -450,10 +434,10 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
           setCurrentDoc({ ...currentDoc, nodes: updatedNodes });
           alert('Đã tự động tích hợp Năng lực số & AI theo QĐ 3439/QĐ-BGDĐT vào bài dạy!');
         } else {
-          alert('AI đã phân tích: Giáo án đã được tích hợp công cụ số.');
+          alert('AI đã phân tích: Giáo án đã tích hợp đầy đủ công cụ số.');
         }
       } else {
-        alert('Có lỗi khi tích hợp Năng lực số. Vui lòng kiểm tra lại kết nối hoặc API Key.');
+        alert('Có lỗi khi kết nối dịch vụ tích hợp Năng lực số.');
       }
     } catch (e) {
       console.error('Integration error:', e);
@@ -483,7 +467,7 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
     alert('Đã sao chép toàn bộ nội dung giáo án song ngữ vào Clipboard!');
   };
 
-  const mockTranslateText = (text: string): string => {
+  const mockTranslateText = (text: string, subj: string): string => {
     if (!text || !text.trim()) return '';
     let clean = text.trim();
 
@@ -501,7 +485,7 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
     if (/^c\)\s*Báo cáo/i.test(clean)) return 'c) Presentation & Discussion:';
     if (/^d\)\s*Kết luận/i.test(clean)) return 'd) Conclusion & Assessment:';
 
-    return `[EN] ${clean}`;
+    return `[EN Translation - ${subj.toUpperCase()}] ${clean}`;
   };
 
   const handleTranslateAll = () => {
@@ -559,14 +543,16 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
 
   return (
     <div className="app-main flex flex-col lg:flex-row gap-6">
-      {/* LEFT COLUMN: SIDEBAR CONFIGURATION PANEL */}
-      <aside className="settings-sidebar card w-full lg:w-80 shrink-0 space-y-6">
-        <div className="card-header flex items-center space-x-2 border-b border-slate-200 dark:border-slate-800 pb-3">
-          <Sliders className="w-5 h-5 text-indigo-500" />
-          <h2 className="text-sm font-bold text-slate-900 dark:text-white">Cấu Hình Dịch Thuật</h2>
+      {/* LEFT COLUMN: SIDEBAR CONFIGURATION PANEL (giaodien.md Teal Theme) */}
+      <aside className="settings-sidebar card-glass w-full lg:w-80 shrink-0 space-y-6">
+        <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center space-x-2">
+          <div className="w-8 h-8 rounded-xl bg-teal-100 dark:bg-teal-950 text-teal-600 dark:text-teal-400 flex items-center justify-center font-bold">
+            <Sliders className="w-4 h-4" />
+          </div>
+          <h2 className="text-sm font-extrabold text-slate-900 dark:text-white">Cấu Hình Dịch Thuật</h2>
         </div>
 
-        <div className="card-body space-y-5">
+        <div className="p-5 space-y-5">
           {/* Gemini API Key Section */}
           <div className="form-group space-y-1.5">
             <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center justify-between">
@@ -574,7 +560,7 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
               <button
                 type="button"
                 onClick={onOpenApiKeyModal}
-                className="text-[11px] text-red-600 dark:text-red-400 font-bold hover:underline"
+                className="text-[11px] text-red-600 dark:text-red-400 font-extrabold hover:underline"
               >
                 Lấy API Key
               </button>
@@ -590,19 +576,19 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
                   localStorage.setItem(API_KEY_STORAGE, val);
                 }}
                 placeholder="Nhập API Key (AIzaSy...)"
-                className="w-full px-3 py-2 text-xs rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 outline-none pr-8"
+                className="w-full px-3 py-2 text-xs rounded-xl bg-slate-100/80 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-teal-500 pr-8"
               />
               <button
                 type="button"
                 onClick={onOpenApiKeyModal}
-                className="absolute right-2 p-1 text-slate-400 hover:text-indigo-500"
+                className="absolute right-2 p-1 text-slate-400 hover:text-teal-600"
                 title="Cài đặt Key"
               >
                 <Key className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="flex items-center justify-between text-[11px] pt-1">
+            <div className="flex items-center justify-between text-[11px] pt-0.5">
               {apiKey ? (
                 <span className="text-emerald-600 dark:text-emerald-400 font-bold">✓ Đã thiết lập Key</span>
               ) : (
@@ -614,12 +600,12 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
           {/* Mode Switcher: Mock vs Gemini AI */}
           <div className="form-group space-y-1.5">
             <label className="text-xs font-bold text-slate-700 dark:text-slate-300">Chế độ dịch</label>
-            <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
+            <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl">
               <button
                 type="button"
                 className={`py-1.5 px-3 rounded-lg text-xs font-bold transition-all ${
                   translationMode === 'mock'
-                    ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-sm'
+                    ? 'bg-white dark:bg-slate-900 text-teal-600 dark:text-teal-400 shadow-sm'
                     : 'text-slate-600 dark:text-slate-400'
                 }`}
                 onClick={() => {
@@ -634,7 +620,7 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
                 type="button"
                 className={`py-1.5 px-3 rounded-lg text-xs font-bold transition-all ${
                   translationMode === 'ai'
-                    ? 'bg-blue-600 text-white shadow-sm'
+                    ? 'bg-teal-600 text-white shadow-sm'
                     : 'text-slate-600 dark:text-slate-400'
                 }`}
                 onClick={() => {
@@ -682,12 +668,12 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
                     }}
                     className={`p-2.5 rounded-xl border text-xs cursor-pointer transition-all ${
                       selectedModel === m.id
-                        ? 'border-blue-600 bg-blue-50/50 dark:bg-blue-950/40 text-blue-900 dark:text-blue-100 font-bold'
+                        ? 'border-teal-600 bg-teal-50/60 dark:bg-teal-950/40 text-teal-950 dark:text-teal-100 font-bold ring-2 ring-teal-500/20'
                         : 'border-slate-200 dark:border-slate-800 hover:border-slate-300'
                     }`}
                   >
                     <div className="font-bold">{m.title}</div>
-                    <div className="text-[10px] text-slate-500 font-normal">{m.desc}</div>
+                    <div className="text-[10px] text-slate-500 dark:text-slate-400 font-normal">{m.desc}</div>
                   </div>
                 ))}
               </div>
@@ -696,11 +682,11 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
 
           {/* Subject Selection */}
           <div className="form-group space-y-1.5">
-            <label className="text-xs font-bold text-slate-700 dark:text-slate-300">Môn học</label>
+            <label className="text-xs font-bold text-slate-700 dark:text-slate-300">Môn học (25+ Bộ Môn)</label>
             <select
               value={currentDoc.subject}
               onChange={(e) => handleUpdateConfig({ subject: e.target.value as Subject })}
-              className="w-full px-3 py-2 text-xs rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 outline-none"
+              className="w-full px-3 py-2 text-xs rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-teal-500"
             >
               {(SUBJECTS_BY_LEVEL[currentDoc.level] || SUBJECTS_BY_LEVEL.thcs).map((s) => (
                 <option key={s.value} value={s.value}>
@@ -726,7 +712,7 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
                     grade: availableGrades[0]?.value || 'lop1',
                   });
                 }}
-                className="w-full px-3 py-2 text-xs rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 outline-none"
+                className="w-full px-3 py-2 text-xs rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-teal-500"
               >
                 <option value="mam_non">Mầm non</option>
                 <option value="tieu_hoc">Tiểu học</option>
@@ -741,7 +727,7 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
               <select
                 value={currentDoc.grade || 'lop8'}
                 onChange={(e) => handleUpdateConfig({ grade: e.target.value })}
-                className="w-full px-3 py-2 text-xs rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 outline-none"
+                className="w-full px-3 py-2 text-xs rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-teal-500"
               >
                 {(GRADES_BY_LEVEL[currentDoc.level] || GRADES_BY_LEVEL.thcs).map((g) => (
                   <option key={g.value} value={g.value}>
@@ -758,7 +744,7 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
             <select
               value={translationTone}
               onChange={(e) => setTranslationTone(e.target.value as TranslationStyleOption)}
-              className="w-full px-3 py-2 text-xs rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 outline-none"
+              className="w-full px-3 py-2 text-xs rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-teal-500"
             >
               <option value="academic">Dịch sát chuyên ngành GDPT 2018</option>
               <option value="simple">Dễ hiểu cho học sinh (Simple)</option>
@@ -771,30 +757,30 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
       {/* RIGHT COLUMN: MAIN CONTENT & PREVIEW */}
       <section className="content-area flex-1 space-y-6 min-w-0">
         {/* STEPPER */}
-        <div className="stepper card flex items-center justify-between p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs">
-          <div className={`flex items-center space-x-2 ${currentStep >= 1 ? 'font-bold text-blue-600' : 'text-slate-400'}`}>
-            <span className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-950 text-blue-600 flex items-center justify-center font-bold text-xs">1</span>
+        <div className="stepper card-glass flex items-center justify-between p-4 rounded-2xl text-xs">
+          <div className={`flex items-center space-x-2 ${currentStep >= 1 ? 'font-bold text-teal-600 dark:text-teal-400' : 'text-slate-400'}`}>
+            <span className="w-6 h-6 rounded-full bg-teal-100 dark:bg-teal-950 text-teal-600 dark:text-teal-300 flex items-center justify-center font-bold text-xs">1</span>
             <span>Tải giáo án gốc</span>
           </div>
 
           <div className="h-px bg-slate-200 dark:bg-slate-800 flex-1 mx-3" />
 
-          <div className={`flex items-center space-x-2 ${currentStep >= 2 ? 'font-bold text-blue-600' : 'text-slate-400'}`}>
-            <span className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-950 text-blue-600 flex items-center justify-center font-bold text-xs">2</span>
+          <div className={`flex items-center space-x-2 ${currentStep >= 2 ? 'font-bold text-teal-600 dark:text-teal-400' : 'text-slate-400'}`}>
+            <span className="w-6 h-6 rounded-full bg-teal-100 dark:bg-teal-950 text-teal-600 dark:text-teal-300 flex items-center justify-center font-bold text-xs">2</span>
             <span>Dịch & Xem trước</span>
           </div>
 
           <div className="h-px bg-slate-200 dark:bg-slate-800 flex-1 mx-3" />
 
-          <div className={`flex items-center space-x-2 ${currentStep >= 3 ? 'font-bold text-emerald-600' : 'text-slate-400'}`}>
+          <div className={`flex items-center space-x-2 ${currentStep >= 3 ? 'font-bold text-emerald-600 dark:text-emerald-400' : 'text-slate-400'}`}>
             <span className="w-6 h-6 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-600 flex items-center justify-center font-bold text-xs">3</span>
             <span>Xuất file Word song ngữ</span>
           </div>
         </div>
 
         {/* FILE UPLOAD ZONE */}
-        <div className="card p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4 text-center">
-          <div className="upload-zone border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-2xl p-8 hover:border-blue-500 transition-colors cursor-pointer" onClick={() => document.getElementById('docx-file-input')?.click()}>
+        <div className="card-glass p-6 rounded-3xl space-y-4 text-center">
+          <div className="upload-zone border-2 border-dashed border-teal-200 dark:border-teal-900/60 hover:border-teal-500 transition-all rounded-2xl p-8 cursor-pointer bg-teal-50/20 dark:bg-teal-950/10" onClick={() => document.getElementById('docx-file-input')?.click()}>
             <input
               id="docx-file-input"
               type="file"
@@ -802,24 +788,24 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
               onChange={handleFileUpload}
               className="hidden"
             />
-            <div className="w-12 h-12 rounded-full bg-blue-50 dark:bg-blue-950 text-blue-600 flex items-center justify-center mx-auto mb-3">
+            <div className="w-12 h-12 rounded-full bg-teal-100 dark:bg-teal-950 text-teal-600 flex items-center justify-center mx-auto mb-3">
               <FileUp className="w-6 h-6" />
             </div>
             <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-              Nhấp hoặc kéo thả file Word (.docx) hoặc PDF bài dạy vào đây
+              Kéo thả hoặc nhấp để tải Kế hoạch bài dạy (.docx hoặc .pdf)
             </h3>
             <p className="text-xs text-slate-400 mt-1">
-              Bảo lưu 100% định dạng bảng biểu, công thức toán & hình ảnh
+              Bảo lưu 100% định dạng in đậm, in nghiêng, căn lề, bảng biểu & công thức toán gốc
             </p>
           </div>
 
           {currentDoc.nodes.length > 0 && (
             <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-100 dark:border-slate-800 text-left">
               <div className="flex items-center space-x-3">
-                <FileText className="w-6 h-6 text-blue-600" />
+                <FileText className="w-6 h-6 text-teal-600" />
                 <div>
                   <h4 className="text-xs font-bold text-slate-900 dark:text-white">{currentDoc.title}</h4>
-                  <p className="text-[11px] text-slate-400">{currentDoc.nodes.length} phần tử giáo án</p>
+                  <p className="text-[11px] text-slate-400">{currentDoc.nodes.length} phần tử giáo án • Bảo lưu định dạng gốc</p>
                 </div>
               </div>
 
@@ -827,7 +813,7 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
                 <button
                   onClick={handleTranslateAll}
                   disabled={isTranslating}
-                  className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md transition-all flex items-center space-x-1.5 disabled:opacity-50"
+                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white text-xs font-bold shadow-md transition-all flex items-center space-x-2 disabled:opacity-50"
                 >
                   <Sparkles className="w-4 h-4 text-amber-300" />
                   <span>DỊCH SONG NGỮ AI</span>
@@ -839,8 +825,8 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
 
         {/* TRANSLATION & INTEGRATION PROGRESS CARD */}
         {(isTranslating || isIntegrating || translationProgress) && (
-          <div className="card p-5 rounded-2xl bg-blue-50/50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 space-y-2">
-            <div className="flex items-center justify-between text-xs font-bold text-blue-900 dark:text-blue-200">
+          <div className="card-glass p-5 rounded-2xl bg-teal-50/60 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800 space-y-2">
+            <div className="flex items-center justify-between text-xs font-bold text-teal-900 dark:text-teal-200">
               <span className="flex items-center space-x-2">
                 <Sparkles className="w-4 h-4 text-amber-500 animate-spin" />
                 <span>
@@ -852,26 +838,26 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
               <span>{translationProgress?.pct || 0}%</span>
             </div>
 
-            <div className="w-full h-2 rounded-full bg-blue-200 dark:bg-blue-900 overflow-hidden">
+            <div className="w-full h-2 rounded-full bg-teal-200 dark:bg-teal-900 overflow-hidden">
               <div
-                className="h-full bg-blue-600 transition-all duration-300"
+                className="h-full bg-teal-600 transition-all duration-300"
                 style={{ width: `${translationProgress?.pct || 0}%` }}
               />
             </div>
           </div>
         )}
 
-        {/* PREVIEW PANEL */}
+        {/* SCIENTIFIC PREVIEW PANEL (A4 SHEET PREVIEW) */}
         {currentDoc.nodes.length > 0 && (
-          <div className="card rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden flex flex-col">
+          <div className="card-glass rounded-3xl shadow-sm overflow-hidden flex flex-col">
             {/* Action Bar Header */}
-            <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 bg-slate-50/50 dark:bg-slate-900/50">
+            <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 bg-slate-50/70 dark:bg-slate-900/70">
               <div className="flex items-center space-x-2">
                 <button
                   onClick={() => setPreviewTab('bilingual')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
                     previewTab === 'bilingual'
-                      ? 'bg-blue-600 text-white'
+                      ? 'bg-teal-600 text-white shadow-sm'
                       : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
                   }`}
                 >
@@ -879,9 +865,9 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
                 </button>
                 <button
                   onClick={() => setPreviewTab('source')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
                     previewTab === 'source'
-                      ? 'bg-blue-600 text-white'
+                      ? 'bg-teal-600 text-white shadow-sm'
                       : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
                   }`}
                 >
@@ -929,118 +915,127 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
               </div>
             </div>
 
-            {/* Document Sheet View */}
-            <div className="p-6 sm:p-8 max-h-[600px] overflow-y-auto font-['Times_New_Roman',_Times,_serif] text-[13pt] leading-relaxed space-y-3">
-              {currentDoc.nodes.map((node) => {
-                const isSelected = selectedNodeId === node.id;
-                const isHeader =
-                  node.type === 'heading1' ||
-                  node.type === 'heading2' ||
-                  node.type === 'heading3' ||
-                  node.type === 'title' ||
-                  /^(I|II|III|IV|V|VI|VII|VIII|IX|X|\d+|[A-Z])[\.\:]\s*/i.test((node.contentVi || '').trim());
+            {/* Document Sheet View — Simulated A4 Paper */}
+            <div className="p-6 sm:p-10 max-h-[650px] overflow-y-auto bg-slate-100 dark:bg-slate-950/80 flex justify-center">
+              <div className="a4-paper-sheet w-full max-w-[800px] p-8 sm:p-12 space-y-3">
+                {currentDoc.nodes.map((node) => {
+                  const isSelected = selectedNodeId === node.id;
+                  const isHeader =
+                    node.type === 'heading1' ||
+                    node.type === 'heading2' ||
+                    node.type === 'heading3' ||
+                    node.type === 'title' ||
+                    /^(I|II|III|IV|V|VI|VII|VIII|IX|X|\d+|[A-Z])[\.\:]\s*/i.test((node.contentVi || '').trim());
 
-                if (node.type === 'table' && node.tableRows) {
+                  let alignClass = 'text-left';
+                  if (node.align === 'center') alignClass = 'text-center';
+                  if (node.align === 'right') alignClass = 'text-right';
+                  if (node.align === 'justify') alignClass = 'text-justify';
+
+                  if (node.type === 'table' && node.tableRows) {
+                    return (
+                      <div
+                        key={node.id}
+                        onClick={() => setSelectedNodeId(node.id)}
+                        className={`my-4 p-2 rounded-xl transition-all cursor-pointer ${
+                          isSelected ? 'ring-2 ring-teal-500 bg-teal-50/20' : ''
+                        }`}
+                      >
+                        <table className="w-full border-collapse border border-slate-300 dark:border-slate-700">
+                          <tbody>
+                            {node.tableRows.map((row) => (
+                              <tr key={row.id}>
+                                {row.cells.map((cell) => (
+                                  <td
+                                    key={cell.id}
+                                    className={`border border-slate-300 dark:border-slate-700 p-3 align-top ${
+                                      cell.isHeader
+                                        ? 'bg-slate-100 dark:bg-slate-800 font-bold'
+                                        : ''
+                                    }`}
+                                  >
+                                    {cell.imageData && (
+                                      <img
+                                        src={cell.imageData}
+                                        alt="Diagram"
+                                        className="max-w-[220px] max-h-[160px] my-1 rounded border border-slate-200 mx-auto block"
+                                      />
+                                    )}
+                                    <div className="text-slate-900 dark:text-slate-100">
+                                      {cell.contentVi}
+                                    </div>
+
+                                    {previewTab === 'bilingual' && (
+                                      <input
+                                        type="text"
+                                        placeholder="+ Dịch tiếng Anh..."
+                                        value={cell.contentEn || ''}
+                                        onChange={(e) =>
+                                          handleUpdateTableCell(
+                                            node.id,
+                                            row.id,
+                                            cell.id,
+                                            'contentEn',
+                                            e.target.value
+                                          )
+                                        }
+                                        className="w-full bg-transparent italic text-[#003399] dark:text-sky-400 font-normal focus:outline-none focus:ring-1 focus:ring-teal-400 rounded px-1 mt-1 text-[13pt]"
+                                      />
+                                    )}
+                                  </td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    );
+                  }
+
                   return (
                     <div
                       key={node.id}
                       onClick={() => setSelectedNodeId(node.id)}
-                      className={`my-3 p-2 rounded-xl transition-all cursor-pointer ${
-                        isSelected ? 'ring-2 ring-blue-500 bg-blue-50/20' : ''
+                      className={`my-2 p-2 rounded-xl transition-all cursor-pointer ${alignClass} ${
+                        isSelected ? 'ring-2 ring-teal-500 bg-teal-50/20' : ''
                       }`}
                     >
-                      <table className="w-full border-collapse border border-slate-300 dark:border-slate-700">
-                        <tbody>
-                          {node.tableRows.map((row) => (
-                            <tr key={row.id}>
-                              {row.cells.map((cell) => (
-                                <td
-                                  key={cell.id}
-                                  className={`border border-slate-300 dark:border-slate-700 p-2.5 align-top ${
-                                    cell.isHeader
-                                      ? 'bg-slate-100 dark:bg-slate-800 font-bold'
-                                      : ''
-                                  }`}
-                                >
-                                  {cell.imageData && (
-                                    <img
-                                      src={cell.imageData}
-                                      alt="Diagram"
-                                      className="max-w-[220px] max-h-[160px] my-1 rounded border border-slate-200 mx-auto block"
-                                    />
-                                  )}
-                                  <div className="text-slate-900 dark:text-slate-100">
-                                    {cell.contentVi}
-                                  </div>
+                      {node.imageData && (
+                        <img
+                          src={node.imageData}
+                          alt="Illustration"
+                          className="max-w-[320px] max-h-[220px] my-2 rounded border border-slate-200 mx-auto block"
+                        />
+                      )}
+                      <div
+                        className={`${
+                          node.isIntegrated ? 'text-red-600 dark:text-red-400 font-bold' : 'text-slate-900 dark:text-slate-100'
+                        } ${isHeader || node.isBold ? 'font-bold' : 'font-normal'} ${
+                          node.isItalic ? 'italic' : ''
+                        }`}
+                      >
+                        {node.type === 'bullet' ? '• ' : ''}{node.contentVi}
+                      </div>
 
-                                  {previewTab === 'bilingual' && (
-                                    <input
-                                      type="text"
-                                      placeholder="+ Dịch tiếng Anh..."
-                                      value={cell.contentEn || ''}
-                                      onChange={(e) =>
-                                        handleUpdateTableCell(
-                                          node.id,
-                                          row.id,
-                                          cell.id,
-                                          'contentEn',
-                                          e.target.value
-                                        )
-                                      }
-                                      className="w-full bg-transparent italic text-[#003399] dark:text-sky-400 font-normal focus:outline-none focus:ring-1 focus:ring-blue-400 rounded px-1 mt-1 text-[13pt]"
-                                    />
-                                  )}
-                                </td>
-                              ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                      {previewTab === 'bilingual' && (
+                        <textarea
+                          rows={Math.ceil((node.contentEn || '').length / 60) || 1}
+                          placeholder="+ Tiếng Anh (Màu xanh #003399, In nghiêng)..."
+                          value={node.contentEn || ''}
+                          onChange={(e) =>
+                            handleUpdateNodeContent(node.id, 'contentEn', e.target.value)
+                          }
+                          className="w-full bg-transparent italic text-[#003399] dark:text-sky-400 font-normal focus:outline-none focus:ring-1 focus:ring-teal-400 rounded px-1 mt-1 text-[13pt] resize-none"
+                        />
+                      )}
                     </div>
                   );
-                }
-
-                return (
-                  <div
-                    key={node.id}
-                    onClick={() => setSelectedNodeId(node.id)}
-                    className={`my-2 p-2 rounded-xl transition-all cursor-pointer ${
-                      isSelected ? 'ring-2 ring-blue-500 bg-blue-50/20' : ''
-                    }`}
-                  >
-                    {node.imageData && (
-                      <img
-                        src={node.imageData}
-                        alt="Illustration"
-                        className="max-w-[300px] max-h-[200px] my-2 rounded border border-slate-200 mx-auto block"
-                      />
-                    )}
-                    <div
-                      className={`${
-                        node.isIntegrated ? 'text-red-600 dark:text-red-400 font-bold' : 'text-slate-900 dark:text-slate-100'
-                      } ${isHeader ? 'font-bold' : 'font-normal'}`}
-                    >
-                      {node.contentVi}
-                    </div>
-
-                    {previewTab === 'bilingual' && (
-                      <textarea
-                        rows={Math.ceil((node.contentEn || '').length / 60) || 1}
-                        placeholder="+ Tiếng Anh (Màu xanh đậm #003399, In nghiêng)..."
-                        value={node.contentEn || ''}
-                        onChange={(e) =>
-                          handleUpdateNodeContent(node.id, 'contentEn', e.target.value)
-                        }
-                        className="w-full bg-transparent italic text-[#003399] dark:text-sky-400 font-normal focus:outline-none focus:ring-1 focus:ring-blue-400 rounded px-1 mt-1 text-[13pt] resize-none"
-                      />
-                    )}
-                  </div>
-                );
-              })}
+                })}
+              </div>
             </div>
 
             {/* Footer Action Bar */}
-            <div className="p-4 border-t border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 bg-slate-50/50 dark:bg-slate-900/50">
+            <div className="p-4 border-t border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 bg-slate-50/70 dark:bg-slate-900/70">
               <button
                 onClick={handleReset}
                 className="px-4 py-2 rounded-xl bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 text-slate-700 dark:text-slate-300 text-xs font-bold transition-all flex items-center space-x-1.5"

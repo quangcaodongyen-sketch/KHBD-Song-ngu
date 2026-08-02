@@ -13,7 +13,7 @@ export async function parseUploadedFileToNodes(file: File): Promise<PlanNode[]> 
   if (fileName.endsWith('.docx')) {
     try {
       const arrayBuffer = await file.arrayBuffer();
-      // Configure mammoth to convert docx images to inline base64 images
+      // Configure mammoth to convert docx images to inline base64 images and retain formatting tags
       const result = await mammoth.convertToHtml({
         arrayBuffer,
         convertImage: mammoth.images.imgElement((image) => {
@@ -37,7 +37,6 @@ export async function parseUploadedFileToNodes(file: File): Promise<PlanNode[]> 
       return parseRawTextToNodes('KẾ HOẠCH BÀI DẠY (Tải từ PDF)\nNội dung bài dạy trích xuất từ file PDF.');
     }
   } else {
-    // Plain TXT or other text formats
     const text = await file.text();
     return parseRawTextToNodes(text);
   }
@@ -54,14 +53,13 @@ async function parsePdfToNodes(file: File): Promise<PlanNode[]> {
     const page = await pdfDoc.getPage(i);
     const textContent = await page.getTextContent();
 
-    // Group text items by Y position to reconstruct paragraphs / table lines
     const lineMap: { [y: number]: { x: number; text: string }[] } = {};
 
     for (const item of textContent.items) {
       if ('str' in item && item.str.trim()) {
         const transform = item.transform;
         const x = transform[4];
-        const y = Math.round(transform[5] / 4) * 4; // group items within 4px height
+        const y = Math.round(transform[5] / 4) * 4;
 
         if (!lineMap[y]) {
           lineMap[y] = [];
@@ -70,13 +68,11 @@ async function parsePdfToNodes(file: File): Promise<PlanNode[]> {
       }
     }
 
-    // Sort lines top to bottom (descending Y)
     const sortedYs = Object.keys(lineMap)
       .map(Number)
       .sort((a, b) => b - a);
 
     for (const y of sortedYs) {
-      // Sort items left to right
       const sortedItems = lineMap[y].sort((a, b) => a.x - b.x);
       const lineStr = sortedItems.map((item) => item.text).join(' ').trim();
       if (lineStr) {
@@ -99,7 +95,7 @@ async function parsePdfToNodes(file: File): Promise<PlanNode[]> {
       {
         id: `pdf-empty-desc-${Date.now()}`,
         type: 'paragraph',
-        contentVi: 'Nội dung file PDF không có lớp văn bản (PDF ảnh quét/scan). Thầy cô có thể gõ hoặc dán trực tiếp nội dung bài dạy vào đây.',
+        contentVi: 'Nội dung file PDF dạng quét/scan. Thầy cô có thể gõ hoặc dán trực tiếp nội dung bài dạy tại đây.',
         contentEn: '',
         fontSize: 13,
       },
@@ -107,6 +103,29 @@ async function parsePdfToNodes(file: File): Promise<PlanNode[]> {
   }
 
   return parseRawTextToNodes(fullText);
+}
+
+function detectFormatting(el: Element): { isBold: boolean; isItalic: boolean; align?: 'left' | 'center' | 'right' | 'justify' } {
+  const isBold =
+    el.querySelector('strong, b') !== null ||
+    el.tagName.toLowerCase() === 'strong' ||
+    el.tagName.toLowerCase() === 'b' ||
+    /font-weight\s*:\s*(bold|[6-9]00)/i.test(el.getAttribute('style') || '');
+
+  const isItalic =
+    el.querySelector('em, i') !== null ||
+    el.tagName.toLowerCase() === 'em' ||
+    el.tagName.toLowerCase() === 'i' ||
+    /font-style\s*:\s*italic/i.test(el.getAttribute('style') || '');
+
+  let align: 'left' | 'center' | 'right' | 'justify' | undefined;
+  const style = el.getAttribute('style') || '';
+  if (/text-align\s*:\s*center/i.test(style)) align = 'center';
+  else if (/text-align\s*:\s*right/i.test(style)) align = 'right';
+  else if (/text-align\s*:\s*justify/i.test(style)) align = 'justify';
+  else if (/text-align\s*:\s*left/i.test(style)) align = 'left';
+
+  return { isBold, isItalic, align };
 }
 
 function detectCV5512Header(text: string): { isHeader: boolean; type: NodeType; isBold: boolean; fontSize: number } {
@@ -157,6 +176,8 @@ function parseHtmlToNodes(html: string): PlanNode[] {
 
     if (!textContent && tagName !== 'table' && !imageData) continue;
 
+    const fmt = detectFormatting(el);
+
     if (tagName === 'h1' || tagName === 'h2') {
       nodes.push({
         id: `pnode-${nodeCount++}`,
@@ -166,6 +187,8 @@ function parseHtmlToNodes(html: string): PlanNode[] {
         imageData,
         fontSize: tagName === 'h1' ? 14 : 13,
         isBold: true,
+        isItalic: fmt.isItalic,
+        align: fmt.align,
       });
     } else if (tagName === 'h3' || tagName === 'h4') {
       nodes.push({
@@ -176,11 +199,14 @@ function parseHtmlToNodes(html: string): PlanNode[] {
         imageData,
         fontSize: 13,
         isBold: true,
+        isItalic: fmt.isItalic,
+        align: fmt.align,
       });
     } else if (tagName === 'ul' || tagName === 'ol') {
       const lis = Array.from(el.querySelectorAll('li'));
       for (const li of lis) {
         const liImg = li.querySelector('img');
+        const liFmt = detectFormatting(li);
         nodes.push({
           id: `pnode-${nodeCount++}`,
           type: 'bullet',
@@ -188,6 +214,8 @@ function parseHtmlToNodes(html: string): PlanNode[] {
           contentEn: '',
           imageData: liImg ? liImg.getAttribute('src') || undefined : undefined,
           fontSize: 13,
+          isBold: liFmt.isBold,
+          isItalic: liFmt.isItalic,
         });
       }
     } else if (tagName === 'table') {
@@ -231,7 +259,9 @@ function parseHtmlToNodes(html: string): PlanNode[] {
         contentEn: '',
         imageData,
         fontSize: headerInfo.fontSize,
-        isBold: headerInfo.isBold,
+        isBold: headerInfo.isBold || fmt.isBold,
+        isItalic: fmt.isItalic,
+        align: fmt.align,
       });
     }
   }
