@@ -35,9 +35,8 @@ function base64ToUint8Array(base64: string): Uint8Array {
  * Export bilingual lesson plan to Word (.docx) with professional formatting:
  * - Vietnamese: Bold/Normal black Times New Roman 13pt
  * - English: Italic blue (#003399) Times New Roman 13pt, on the line below
- * - Tables: Vi + En stacked in each cell
- * - Embedded Images:Preserved inside cells & paragraphs
- * - No branding headers/footers for clean print output
+ * - Tables: Vi + En stacked in each cell, padding 100/150 dxa, 55/45 column split
+ * - Margins: Top 2cm, Bottom 2cm, Right 2cm, Left 3cm (binding)
  */
 export async function exportLessonPlanToDocx(doc: LessonPlanDocument) {
   const childrenElements: any[] = [];
@@ -49,7 +48,9 @@ export async function exportLessonPlanToDocx(doc: LessonPlanDocument) {
     // ================================================================
     if (node.type === 'table' && node.tableRows && node.tableRows.length > 0) {
       const docxRows = node.tableRows.map((row) => {
-        const docxCells = row.cells.map((cell) => {
+        const isTwoColumns = row.cells.length === 2;
+
+        const docxCells = row.cells.map((cell, cellIdx) => {
           const cellParagraphs: Paragraph[] = [];
 
           // Embedded Cell Image (e.g. blackboard picture, diagram)
@@ -62,7 +63,7 @@ export async function exportLessonPlanToDocx(doc: LessonPlanDocument) {
                   children: [
                     new ImageRun({
                       data: base64ToUint8Array(cell.imageData),
-                      transformation: { width: 200, height: 140 },
+                      transformation: { width: 220, height: 150 },
                     }),
                   ],
                 })
@@ -72,47 +73,73 @@ export async function exportLessonPlanToDocx(doc: LessonPlanDocument) {
             }
           }
 
-          // Vietnamese cell text
-          cellParagraphs.push(
-            new Paragraph({
-              spacing: { before: 20, after: 0 },
-              children: [
-                new TextRun({
-                  text: cell.contentVi,
-                  bold: cell.isHeader || false,
-                  size: DEFAULT_FONT_SIZE,
-                  font: 'Times New Roman',
-                  color: '000000',
-                }),
-              ],
-            })
-          );
+          // Vietnamese cell text paragraphs (split multi-line strings if needed)
+          const viLines = cell.contentVi ? cell.contentVi.split('\n').filter((l) => l.trim().length > 0) : [''];
+          const enLines = cell.contentEn ? cell.contentEn.split('\n').filter((l) => l.trim().length > 0) : [];
 
-          // English cell text (italic blue, below Vietnamese, no parentheses)
-          if (cell.contentEn) {
-            const cleanEnText = cell.contentEn.replace(/^\s*[\(\[\{]\s*/, '').replace(/\s*[\)\]\}]\s*$/, '').trim();
-            cellParagraphs.push(
-              new Paragraph({
-                spacing: { before: 20, after: 20 },
-                children: [
-                  new TextRun({
-                    text: cleanEnText,
-                    italics: true,
-                    bold: false,
-                    size: DEFAULT_FONT_SIZE,
-                    font: 'Times New Roman',
-                    color: BLUE_COLOR,
-                  }),
-                ],
-              })
-            );
+          // Format cell lines with stacked Vi -> En pairs
+          const maxLines = Math.max(viLines.length, enLines.length, 1);
+          for (let i = 0; i < maxLines; i++) {
+            const viText = viLines[i] || '';
+            const enText = enLines[i] || '';
+
+            if (viText) {
+              const isViBold = cell.isHeader || /^\s*(\*?\s*Bước\s*\d+|Nhiệm vụ\s*\d+|Hoạt động|Nội dung|Teacher|HS|GV|CÂU|Câu\s*\d+)/i.test(viText);
+              cellParagraphs.push(
+                new Paragraph({
+                  spacing: { before: 30, after: 10, line: 276 },
+                  children: [
+                    new TextRun({
+                      text: viText,
+                      bold: isViBold,
+                      size: DEFAULT_FONT_SIZE,
+                      font: 'Times New Roman',
+                      color: '000000',
+                    }),
+                  ],
+                })
+              );
+            }
+
+            if (enText) {
+              const cleanEnText = enText.replace(/^\s*[\(\[\{]\s*/, '').replace(/\s*[\)\]\}]\s*$/, '').trim();
+              if (cleanEnText) {
+                cellParagraphs.push(
+                  new Paragraph({
+                    spacing: { before: 0, after: 40, line: 276 },
+                    children: [
+                      new TextRun({
+                        text: cleanEnText,
+                        italics: true,
+                        bold: false,
+                        size: DEFAULT_FONT_SIZE,
+                        font: 'Times New Roman',
+                        color: BLUE_COLOR,
+                      }),
+                    ],
+                  })
+                );
+              }
+            }
+          }
+
+          // Compute cell width percentage (55% / 45% for 2-column activity table, equal for others)
+          let cellWidthPct = Math.floor(100 / row.cells.length);
+          if (isTwoColumns) {
+            cellWidthPct = cellIdx === 0 ? 55 : 45;
           }
 
           return new TableCell({
-            children: cellParagraphs,
+            children: cellParagraphs.length > 0 ? cellParagraphs : [new Paragraph({ children: [new TextRun({ text: '', size: DEFAULT_FONT_SIZE })] })],
             verticalAlign: VerticalAlign.TOP,
-            width: { size: Math.floor(100 / row.cells.length), type: WidthType.PERCENTAGE },
+            width: { size: cellWidthPct, type: WidthType.PERCENTAGE },
             shading: cell.isHeader ? { fill: 'F0F4FA' } : undefined,
+            margins: {
+              top: 100,    // ~6pt padding top
+              bottom: 100, // ~6pt padding bottom
+              left: 150,   // ~9pt padding left
+              right: 150,  // ~9pt padding right
+            },
             borders: {
               top: { style: BorderStyle.SINGLE, size: 4, color: '000000' },
               bottom: { style: BorderStyle.SINGLE, size: 4, color: '000000' },
@@ -132,7 +159,7 @@ export async function exportLessonPlanToDocx(doc: LessonPlanDocument) {
 
       childrenElements.push(table);
       // Small spacing after table
-      childrenElements.push(new Paragraph({ spacing: { after: 60 } }));
+      childrenElements.push(new Paragraph({ spacing: { after: 80 } }));
       continue;
     }
 
@@ -159,12 +186,12 @@ export async function exportLessonPlanToDocx(doc: LessonPlanDocument) {
       isHeaderNode ||
       /^(I|II|III|IV|V|VI|VII|VIII|IX|X|\d+|[A-Z])[\.:\)]\s*/i.test(node.contentVi.trim());
 
-    // Detect title/center lines (e.g. "ÔN TẬP CUỐI HỌC KỲ I")
+    // Detect title/center lines (e.g. "BÀI 2: XỬ LÝ THÔNG TIN")
     const isCenterTitle =
       node.type === 'title' ||
       (node.align === 'center');
 
-    // Embedded Paragraph Image (e.g. diagrams, illustrations)
+    // Embedded Paragraph Image
     if (node.imageData && node.imageData.startsWith('data:image')) {
       try {
         childrenElements.push(
@@ -174,7 +201,7 @@ export async function exportLessonPlanToDocx(doc: LessonPlanDocument) {
             children: [
               new ImageRun({
                 data: base64ToUint8Array(node.imageData),
-                transformation: { width: 280, height: 180 },
+                transformation: { width: 300, height: 190 },
               }),
             ],
           })
@@ -191,10 +218,9 @@ export async function exportLessonPlanToDocx(doc: LessonPlanDocument) {
     const viPrefix = node.type === 'bullet' ? '• ' : '';
     const viTextRuns: TextRun[] = [];
 
-    // Check for bold keyword pattern like "Năng lực tự chủ, tự học:"
-    const boldKeywordMatch = node.contentVi.match(/^(\s*)(Năng lực[^:]+:|Phẩm chất[^:]*:)/);
+    // Check for bold keyword pattern like "Năng lực tự chủ, tự học:" or "1. Về kiến thức:"
+    const boldKeywordMatch = node.contentVi.match(/^(\s*)(Năng lực[^:]+:|Phẩm chất[^:]*:|\d+\.\s*Về[^:]+:|\w\)\s*Mục tiêu:|\w\)\s*Nội dung:|\w\)\s*Sản phẩm:|\w\)\s*Tổ chức thực hiện:)/i);
     if (boldKeywordMatch && !isViLineBold) {
-      // Split into bold keyword + rest
       const keyword = boldKeywordMatch[2];
       const rest = node.contentVi.slice(boldKeywordMatch[0].length);
       viTextRuns.push(
@@ -238,33 +264,36 @@ export async function exportLessonPlanToDocx(doc: LessonPlanDocument) {
         alignment: isCenterTitle ? AlignmentType.CENTER : align,
         spacing: {
           before: isHeaderNode ? 120 : 40,
-          after: 0,
+          after: node.contentEn ? 10 : 40,
+          line: 276, // 1.15 line spacing
         },
         children: viTextRuns,
       })
     );
 
-    // English translation paragraph (italic, blue #003399, on the next line, NO parentheses)
+    // English translation paragraph (italic blue #003399 on the next line)
     if (node.contentEn) {
       const enPrefix = node.type === 'bullet' ? '  ' : '';
       const cleanEnText = node.contentEn.replace(/^\s*[\(\[\{]\s*/, '').replace(/\s*[\)\]\}]\s*$/, '').trim();
 
-      childrenElements.push(
-        new Paragraph({
-          alignment: isCenterTitle ? AlignmentType.CENTER : align,
-          spacing: { before: 0, after: 60 },
-          children: [
-            new TextRun({
-              text: enPrefix + cleanEnText,
-              italics: true,
-              bold: false,
-              size: fontSizeHalf,
-              font: 'Times New Roman',
-              color: BLUE_COLOR,
-            }),
-          ],
-        })
-      );
+      if (cleanEnText) {
+        childrenElements.push(
+          new Paragraph({
+            alignment: isCenterTitle ? AlignmentType.CENTER : align,
+            spacing: { before: 0, after: 60, line: 276 },
+            children: [
+              new TextRun({
+                text: enPrefix + cleanEnText,
+                italics: true,
+                bold: false,
+                size: fontSizeHalf,
+                font: 'Times New Roman',
+                color: BLUE_COLOR,
+              }),
+            ],
+          })
+        );
+      }
     }
   }
 
