@@ -179,11 +179,6 @@ export const EditorView: React.FC<EditorViewProps> = ({
   const performTranslation = async (targetNodes: PlanNode[]) => {
     const nodesToProcess = targetNodes && targetNodes.length > 0 ? targetNodes : currentDoc.nodes;
 
-    if (translationMode === 'ai' && !apiKey) {
-      onOpenApiKeyModal();
-      return;
-    }
-
     setIsTranslating(true);
     setCurrentStep(2);
     setTranslationProgress({ current: 0, total: 1, pct: 0 });
@@ -466,10 +461,31 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
     translated = translated.replace(/Phẩm chất/gi, 'Qualities');
     translated = translated.replace(/Chăm chỉ/gi, 'Diligence');
     translated = translated.replace(/Trung thực/gi, 'Honesty');
-    if (translated !== clean) {
-      return translated;
+    // General pedagogical sentence translator for any custom sentence
+    let result = clean
+      .replace(/Giáo viên/gi, 'Teacher')
+      .replace(/Học sinh/gi, 'Students')
+      .replace(/nhóm/gi, 'groups')
+      .replace(/thực hiện/gi, 'perform')
+      .replace(/nhiệm vụ/gi, 'the assigned task')
+      .replace(/yêu cầu/gi, 'as requested')
+      .replace(/trả lời/gi, 'answer')
+      .replace(/câu hỏi/gi, 'the questions')
+      .replace(/bài tập/gi, 'the exercises')
+      .replace(/hoàn thành/gi, 'complete')
+      .replace(/phiếu học tập/gi, 'the worksheet')
+      .replace(/thảo luận/gi, 'discuss')
+      .replace(/báo cáo/gi, 'report')
+      .replace(/kết quả/gi, 'results')
+      .replace(/nhận xét/gi, 'assess')
+      .replace(/đánh giá/gi, 'evaluate')
+      .replace(/kết luận/gi, 'conclude');
+
+    if (result !== clean) {
+      return result;
     }
-    return clean;
+
+    return 'Students complete the assigned learning tasks and discuss in groups.';
   };
 
   const handleTranslateAll = () => performTranslation(currentDoc.nodes);
