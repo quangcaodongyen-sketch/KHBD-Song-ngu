@@ -1,0 +1,6 @@
+{
+  "name": "AI LessonPlan Bilingual Pro",
+  "description": "Ứng dụng tạo giáo án song ngữ Việt - Anh chuẩn Bộ GD&ĐT cho giáo viên các cấp mầm non, tiểu học, THCS, THPT, GDTX.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
