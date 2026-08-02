@@ -66,12 +66,24 @@ export type NodeType =
   | 'textbox' 
   | 'header_footer';
 
+export interface CellParagraphNode {
+  id: string;
+  contentVi: string;
+  contentEn: string;
+  isBold?: boolean;
+  isItalic?: boolean;
+  align?: 'left' | 'center' | 'right' | 'justify';
+}
+
 export interface TableCellNode {
   id: string;
   contentVi: string;
   contentEn: string;
   isHeader?: boolean;
   imageData?: string;
+  isBold?: boolean;
+  isItalic?: boolean;
+  paragraphs?: CellParagraphNode[];
 }
 
 export interface TableRowNode {
@@ -92,14 +104,14 @@ export interface PlanNode {
   contentVi: string;
   contentEn: string;
   imageData?: string;
-  fontSize?: number; // e.g. 13 or 14
+  fontSize?: number; // e.g. 13
   isBold?: boolean;
   isItalic?: boolean;
   isIntegrated?: boolean; // Tích hợp thêm NLS/AI QĐ 3439 (hiển thị chữ màu đỏ)
   integrationType?: 'nls' | 'ai_3439' | 'stem' | 'env';
   align?: 'left' | 'center' | 'right' | 'justify';
   tableRows?: TableRowNode[];
-  sectionName?: string; // e.g. "Hoạt động 1", "Mục tiêu"
+  sectionName?: string;
   pageNumber?: number;
 }
 

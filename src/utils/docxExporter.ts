@@ -60,7 +60,7 @@ export async function exportLessonPlanToDocx(docData: LessonPlanDocument) {
 
   for (const node of docData.nodes) {
     // ================================================================
-    // TABLE NODES — Preserving 100% original table structure
+    // TABLE NODES — Preserving 100% original table structure & cell paragraphs
     // ================================================================
     if (node.type === 'table' && node.tableRows && node.tableRows.length > 0) {
       const docxRows = node.tableRows.map((row) => {
@@ -93,31 +93,40 @@ export async function exportLessonPlanToDocx(docData: LessonPlanDocument) {
             }
           }
 
-          // Cell text paragraphs
-          const rawViLines = cell.contentVi ? cell.contentVi.split('\n') : [''];
-          const rawEnLines = cell.contentEn ? cell.contentEn.split('\n') : [];
+          // Paragraph-by-paragraph rendering inside table cell
+          const parasToRender = (cell.paragraphs && cell.paragraphs.length > 0)
+            ? cell.paragraphs
+            : (cell.contentVi || '').split('\n').map((line, lIdx) => ({
+                id: `cell-line-${lIdx}`,
+                contentVi: line,
+                contentEn: (cell.contentEn || '').split('\n')[lIdx] || (lIdx === 0 ? cell.contentEn : ''),
+                isBold: cell.isBold || cell.isHeader || false,
+                isItalic: cell.isItalic || false,
+                align: cell.isHeader ? ('center' as const) : ('justify' as const),
+              }));
 
-          const viLines = rawViLines.map(cleanTextForXml).filter(Boolean);
-          const enLines = rawEnLines.map(cleanTextForXml).filter(Boolean);
+          for (const p of parasToRender) {
+            const cleanVi = cleanTextForXml(p.contentVi || '');
+            const cleanEn = cleanTextForXml(p.contentEn || '');
 
-          const maxLines = Math.max(viLines.length, enLines.length, 1);
-          for (let i = 0; i < maxLines; i++) {
-            const viText = viLines[i] || (i === 0 && enLines.length === 0 ? '' : '');
-            const enText = enLines[i] || '';
+            if (!cleanVi && !cleanEn) continue;
 
-            if (viText) {
-              const isViBold =
-                cell.isHeader ||
-                /^\s*(\*?\s*Bước\s*\d+|Nhiệm vụ\s*\d+|Hoạt động|Nội dung|Teacher|HS|GV|CÂU|Câu\s*\d+)/i.test(viText);
+            let pAlign = AlignmentType.JUSTIFIED;
+            if (p.align === 'center' || cell.isHeader) pAlign = AlignmentType.CENTER;
+            else if (p.align === 'right') pAlign = AlignmentType.RIGHT;
+            else if (p.align === 'left') pAlign = AlignmentType.LEFT;
 
+            // Vietnamese paragraph inside table cell
+            if (cleanVi) {
               cellParagraphs.push(
                 new Paragraph({
-                  alignment: cell.isHeader ? AlignmentType.CENTER : AlignmentType.JUSTIFIED,
+                  alignment: pAlign,
                   spacing: { before: 20, after: 10, line: 276 },
                   children: [
                     new TextRun({
-                      text: viText,
-                      bold: isViBold,
+                      text: cleanVi,
+                      bold: p.isBold || false, // STRICTLY RESPECT ORIGINAL BOLDING!
+                      italics: p.isItalic || false,
                       size: DEFAULT_FONT_SIZE,
                       font: 'Times New Roman',
                       color: '000000',
@@ -127,8 +136,9 @@ export async function exportLessonPlanToDocx(docData: LessonPlanDocument) {
               );
             }
 
-            if (enText) {
-              const cleanEnText = enText
+            // English translation paragraph directly below Vietnamese paragraph
+            if (cleanEn) {
+              const cleanEnText = cleanEn
                 .replace(/^\s*[\(\[\{]\s*/, '')
                 .replace(/\s*[\)\]\}]\s*$/, '')
                 .trim();
@@ -136,7 +146,7 @@ export async function exportLessonPlanToDocx(docData: LessonPlanDocument) {
               if (cleanEnText) {
                 cellParagraphs.push(
                   new Paragraph({
-                    alignment: cell.isHeader ? AlignmentType.CENTER : AlignmentType.JUSTIFIED,
+                    alignment: pAlign,
                     spacing: { before: 0, after: 30, line: 276 },
                     children: [
                       new TextRun({
@@ -198,14 +208,14 @@ export async function exportLessonPlanToDocx(docData: LessonPlanDocument) {
       });
 
       childrenElements.push(table);
-      childrenElements.push(new Paragraph({ spacing: { after: 60 } }));
+      childrenElements.push(new Paragraph({ spacing: { after: 40 } }));
       continue;
     }
 
     // ================================================================
-    // TEXT NODES — Heading, Paragraph, Bullet, Title, etc.
+    // TEXT NODES — Paragraph, Heading, Bullet, Title, etc.
     // ================================================================
-    let align: any = AlignmentType.JUSTIFIED; // Default to JUSTIFIED for all standard paragraphs!
+    let align: any = AlignmentType.JUSTIFIED;
     if (node.align === 'center') align = AlignmentType.CENTER;
     else if (node.align === 'right') align = AlignmentType.RIGHT;
     else if (node.align === 'left') align = AlignmentType.LEFT;
@@ -213,23 +223,10 @@ export async function exportLessonPlanToDocx(docData: LessonPlanDocument) {
 
     const fontSizeHalf = (node.fontSize || 13) * 2;
 
-    const isHeaderNode =
-      node.type === 'heading1' ||
-      node.type === 'heading2' ||
-      node.type === 'heading3' ||
-      node.type === 'title';
-
     const cleanVi = cleanTextForXml(node.contentVi || '');
     const cleanEn = cleanTextForXml(node.contentEn || '');
 
     if (!cleanVi && !cleanEn && !node.imageData) continue;
-
-    const isViLineBold =
-      node.isBold ||
-      isHeaderNode ||
-      /^(I|II|III|IV|V|VI|VII|VIII|IX|X|\d+|[A-Z])[\.:\)]\s*/i.test(cleanVi);
-
-    const isCenterTitle = node.type === 'title' || node.align === 'center';
 
     // Embedded Paragraph Image
     if (node.imageData && node.imageData.startsWith('data:image')) {
@@ -257,66 +254,32 @@ export async function exportLessonPlanToDocx(docData: LessonPlanDocument) {
 
     const textColor = node.isIntegrated ? 'DC2626' : '000000';
     const viPrefix = node.type === 'bullet' ? '• ' : '';
-    const viTextRuns: TextRun[] = [];
 
-    const boldKeywordMatch = cleanVi.match(
-      /^(\s*)(Năng lực[^:]+:|Phẩm chất[^:]*:|\d+\.\s*Về[^:]+:|\w\)\s*Mục tiêu:|\w\)\s*Nội dung:|\w\)\s*Sản phẩm:|\w\)\s*Tổ chức thực hiện:)/i
-    );
-
-    if (boldKeywordMatch && !isViLineBold) {
-      const keyword = boldKeywordMatch[2];
-      const rest = cleanVi.slice(boldKeywordMatch[0].length);
-      viTextRuns.push(
-        new TextRun({
-          text: viPrefix + keyword,
-          bold: true,
-          italics: node.isItalic || false,
-          size: fontSizeHalf,
-          font: 'Times New Roman',
-          color: textColor,
-        })
-      );
-      if (rest) {
-        viTextRuns.push(
-          new TextRun({
-            text: rest,
-            bold: false,
-            italics: node.isItalic || false,
-            size: fontSizeHalf,
-            font: 'Times New Roman',
-            color: textColor,
-          })
-        );
-      }
-    } else {
-      viTextRuns.push(
-        new TextRun({
-          text: viPrefix + cleanVi,
-          bold: isViLineBold,
-          italics: node.isItalic || false,
-          size: fontSizeHalf,
-          font: 'Times New Roman',
-          color: textColor,
-        })
-      );
-    }
-
-    // Vietnamese paragraph (Căn đều 2 bên)
+    // Vietnamese paragraph (100% PRESERVING ORIGINAL BOLD/ITALIC/ALIGN)
     if (cleanVi) {
       childrenElements.push(
         new Paragraph({
-          alignment: isCenterTitle ? AlignmentType.CENTER : align,
+          alignment: align,
           spacing: {
-            before: isHeaderNode ? 100 : 30,
+            before: 30,
             after: cleanEn ? 10 : 30,
             line: 276,
           },
-          children: viTextRuns,
+          children: [
+            new TextRun({
+              text: viPrefix + cleanVi,
+              bold: node.isBold || false, // ONLY BOLD IF ORIGINALLY BOLD!
+              italics: node.isItalic || false,
+              size: fontSizeHalf,
+              font: 'Times New Roman',
+              color: textColor,
+            }),
+          ],
         })
       );
     }
 
-    // English translation paragraph (Căn đều 2 bên, màu xanh #003399, in nghiêng)
+    // English translation paragraph (italic blue #003399)
     if (cleanEn) {
       const enPrefix = node.type === 'bullet' ? '  ' : '';
       const cleanEnText = cleanEn
@@ -327,8 +290,8 @@ export async function exportLessonPlanToDocx(docData: LessonPlanDocument) {
       if (cleanEnText) {
         childrenElements.push(
           new Paragraph({
-            alignment: isCenterTitle ? AlignmentType.CENTER : align,
-            spacing: { before: 0, after: 50, line: 276 },
+            alignment: align,
+            spacing: { before: 0, after: 40, line: 276 },
             children: [
               new TextRun({
                 text: enPrefix + cleanEnText,

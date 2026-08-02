@@ -1,6 +1,6 @@
 import mammoth from 'mammoth';
 import * as pdfjsLib from 'pdfjs-dist';
-import { PlanNode, NodeType, TableRowNode } from '../types';
+import { PlanNode, NodeType, TableRowNode, TableCellNode, CellParagraphNode } from '../types';
 
 // Configure pdfjs worker to reliable CDN
 if (typeof window !== 'undefined' && pdfjsLib.GlobalWorkerOptions) {
@@ -128,38 +128,6 @@ function detectFormatting(el: Element): { isBold: boolean; isItalic: boolean; al
   return { isBold, isItalic, align };
 }
 
-function detectCV5512Header(text: string): { isHeader: boolean; type: NodeType; isBold: boolean; fontSize: number } {
-  const upper = text.toUpperCase().trim();
-  if (
-    upper.startsWith('KẾ HOẠCH BÀI DẠY') ||
-    upper.startsWith('GIÁO ÁN') ||
-    upper.startsWith('BÀI HỌC:') ||
-    upper.startsWith('TÊN BÀI DẠY:')
-  ) {
-    return { isHeader: true, type: 'title', isBold: true, fontSize: 16 };
-  }
-
-  if (
-    /^(I|II|III|IV|V|VI|VII)\./.test(upper) ||
-    upper.startsWith('MỤC TIÊU') ||
-    upper.startsWith('THIẾT BỊ DẠY HỌC') ||
-    upper.startsWith('TIẾN TRÌNH DẠY HỌC') ||
-    upper.startsWith('HOẠT ĐỘNG')
-  ) {
-    return { isHeader: true, type: 'heading1', isBold: true, fontSize: 14 };
-  }
-
-  if (
-    /^\d+\.\s*(Mục tiêu|Nội dung|Sản phẩm|Tổ chức thực hiện)/i.test(text) ||
-    /^(a|b|c|d)\)\s*(Chuyển giao|Thực hiện|Báo cáo|Kết luận)/i.test(text) ||
-    /^Bước\s*\d+/i.test(text)
-  ) {
-    return { isHeader: true, type: 'heading2', isBold: true, fontSize: 13 };
-  }
-
-  return { isHeader: false, type: 'paragraph', isBold: false, fontSize: 13 };
-}
-
 function parseHtmlToNodes(html: string): PlanNode[] {
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, 'text/html');
@@ -185,10 +153,10 @@ function parseHtmlToNodes(html: string): PlanNode[] {
         contentVi: textContent,
         contentEn: '',
         imageData,
-        fontSize: tagName === 'h1' ? 14 : 13,
-        isBold: true,
+        fontSize: 13,
+        isBold: fmt.isBold,
         isItalic: fmt.isItalic,
-        align: fmt.align,
+        align: fmt.align || 'justify',
       });
     } else if (tagName === 'h3' || tagName === 'h4') {
       nodes.push({
@@ -198,9 +166,9 @@ function parseHtmlToNodes(html: string): PlanNode[] {
         contentEn: '',
         imageData,
         fontSize: 13,
-        isBold: true,
+        isBold: fmt.isBold,
         isItalic: fmt.isItalic,
-        align: fmt.align,
+        align: fmt.align || 'justify',
       });
     } else if (tagName === 'ul' || tagName === 'ol') {
       const lis = Array.from(el.querySelectorAll('li'));
@@ -216,6 +184,7 @@ function parseHtmlToNodes(html: string): PlanNode[] {
           fontSize: 13,
           isBold: liFmt.isBold,
           isItalic: liFmt.isItalic,
+          align: liFmt.align || 'justify',
         });
       }
     } else if (tagName === 'table') {
@@ -225,14 +194,51 @@ function parseHtmlToNodes(html: string): PlanNode[] {
 
       for (const tr of rows) {
         const cells = Array.from(tr.querySelectorAll('th, td'));
-        const cellNodes = cells.map((cell, cIdx) => {
+        const cellNodes: TableCellNode[] = cells.map((cell, cIdx) => {
           const cellImg = cell.querySelector('img');
+          const isHeaderCell = cell.tagName.toLowerCase() === 'th';
+          const pElements = Array.from(cell.querySelectorAll('p, div'));
+
+          let cellParagraphs: CellParagraphNode[] = [];
+
+          if (pElements.length > 0) {
+            cellParagraphs = pElements.map((p, pIdx) => {
+              const text = p.textContent?.trim() || '';
+              const pFmt = detectFormatting(p);
+              return {
+                id: `tcp-${nodeCount}-${rowIdx}-${cIdx}-${pIdx}`,
+                contentVi: text,
+                contentEn: '',
+                isBold: isHeaderCell || pFmt.isBold,
+                isItalic: pFmt.isItalic,
+                align: pFmt.align || (isHeaderCell ? 'center' : 'justify'),
+              };
+            }).filter((p) => p.contentVi.length > 0);
+          }
+
+          if (cellParagraphs.length === 0) {
+            const textLines = (cell.textContent || '').split('\n').map((s) => s.trim()).filter(Boolean);
+            cellParagraphs = textLines.map((lineText, lIdx) => ({
+              id: `tcp-${nodeCount}-${rowIdx}-${cIdx}-${lIdx}`,
+              contentVi: lineText,
+              contentEn: '',
+              isBold: isHeaderCell || detectFormatting(cell).isBold,
+              isItalic: detectFormatting(cell).isItalic,
+              align: detectFormatting(cell).align || (isHeaderCell ? 'center' : 'justify'),
+            }));
+          }
+
+          const fullContentVi = cellParagraphs.map((p) => p.contentVi).join('\n') || cell.textContent?.trim() || '';
+
           return {
             id: `tc-${nodeCount}-${rowIdx}-${cIdx}`,
-            contentVi: cell.textContent?.trim() || '',
+            contentVi: fullContentVi,
             contentEn: '',
-            isHeader: cell.tagName.toLowerCase() === 'th' || rowIdx === 1,
+            isHeader: isHeaderCell,
             imageData: cellImg ? cellImg.getAttribute('src') || undefined : undefined,
+            isBold: isHeaderCell || detectFormatting(cell).isBold,
+            isItalic: detectFormatting(cell).isItalic,
+            paragraphs: cellParagraphs,
           };
         });
 
@@ -247,21 +253,20 @@ function parseHtmlToNodes(html: string): PlanNode[] {
         type: 'table',
         contentVi: 'Bảng biểu Kế hoạch bài dạy',
         contentEn: 'Lesson plan table',
-        fontSize: 12,
+        fontSize: 13,
         tableRows,
       });
     } else {
-      const headerInfo = detectCV5512Header(textContent);
       nodes.push({
         id: `pnode-${nodeCount++}`,
-        type: headerInfo.isHeader ? headerInfo.type : 'paragraph',
+        type: 'paragraph',
         contentVi: textContent,
         contentEn: '',
         imageData,
-        fontSize: headerInfo.fontSize,
-        isBold: headerInfo.isBold || fmt.isBold,
+        fontSize: 13,
+        isBold: fmt.isBold,
         isItalic: fmt.isItalic,
-        align: fmt.align,
+        align: fmt.align || 'justify',
       });
     }
   }
@@ -279,12 +284,11 @@ function parseRawTextToNodes(text: string): PlanNode[] {
   let count = 1;
 
   for (const line of lines) {
-    const headerInfo = detectCV5512Header(line);
-    let type: NodeType = headerInfo.type;
-    let isBold = headerInfo.isBold;
-    let fontSize = headerInfo.fontSize;
+    let type: NodeType = 'paragraph';
+    let isBold = false;
+    let fontSize = 13;
 
-    if (!headerInfo.isHeader && (line.startsWith('•') || line.startsWith('-') || line.startsWith('*'))) {
+    if (line.startsWith('•') || line.startsWith('-') || line.startsWith('*')) {
       type = 'bullet';
       fontSize = 13;
       isBold = false;
@@ -297,6 +301,7 @@ function parseRawTextToNodes(text: string): PlanNode[] {
       contentEn: '',
       fontSize,
       isBold,
+      align: 'justify',
     });
   }
 
