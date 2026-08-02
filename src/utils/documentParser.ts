@@ -1,108 +1,31 @@
 import mammoth from 'mammoth';
-import * as pdfjsLib from 'pdfjs-dist';
 import { PlanNode, NodeType, TableRowNode, TableCellNode, CellParagraphNode } from '../types';
-
-// Configure pdfjs worker to reliable CDN
-if (typeof window !== 'undefined' && pdfjsLib.GlobalWorkerOptions) {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
-}
 
 export async function parseUploadedFileToNodes(file: File): Promise<PlanNode[]> {
   const fileName = file.name.toLowerCase();
 
-  if (fileName.endsWith('.docx')) {
-    try {
-      const arrayBuffer = await file.arrayBuffer();
-      // Configure mammoth to convert docx images to inline base64 images and retain formatting tags
-      const result = await mammoth.convertToHtml({
-        arrayBuffer,
-        convertImage: mammoth.images.imgElement((image) => {
-          return image.read('base64').then((imageBuffer) => ({
-            src: `data:${image.contentType};base64,${imageBuffer}`,
-          }));
-        }),
-      });
-      const html = result.value;
-      return parseHtmlToNodes(html);
-    } catch (e) {
-      console.warn('Mammoth docx parse failed, falling back to text reader', e);
-      const text = await file.text();
-      return parseRawTextToNodes(text);
-    }
-  } else if (fileName.endsWith('.pdf')) {
-    try {
-      return await parsePdfToNodes(file);
-    } catch (e) {
-      console.warn('PDF parsing failed, falling back to basic text extractor', e);
-      return parseRawTextToNodes('KẾ HOẠCH BÀI DẠY (Tải từ PDF)\nNội dung bài dạy trích xuất từ file PDF.');
-    }
-  } else {
+  if (!fileName.endsWith('.docx')) {
+    throw new Error('Hệ thống chỉ chấp nhận định dạng file Word (.docx).');
+  }
+
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    // Configure mammoth to convert docx images to inline base64 images and retain formatting tags
+    const result = await mammoth.convertToHtml({
+      arrayBuffer,
+      convertImage: mammoth.images.imgElement((image) => {
+        return image.read('base64').then((imageBuffer) => ({
+          src: `data:${image.contentType};base64,${imageBuffer}`,
+        }));
+      }),
+    });
+    const html = result.value;
+    return parseHtmlToNodes(html);
+  } catch (e) {
+    console.warn('Mammoth docx parse failed, falling back to text reader', e);
     const text = await file.text();
     return parseRawTextToNodes(text);
   }
-}
-
-async function parsePdfToNodes(file: File): Promise<PlanNode[]> {
-  const arrayBuffer = await file.arrayBuffer();
-  const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) });
-  const pdfDoc = await loadingTask.promise;
-
-  const extractedLines: string[] = [];
-
-  for (let i = 1; i <= pdfDoc.numPages; i++) {
-    const page = await pdfDoc.getPage(i);
-    const textContent = await page.getTextContent();
-
-    const lineMap: { [y: number]: { x: number; text: string }[] } = {};
-
-    for (const item of textContent.items) {
-      if ('str' in item && item.str.trim()) {
-        const transform = item.transform;
-        const x = transform[4];
-        const y = Math.round(transform[5] / 4) * 4;
-
-        if (!lineMap[y]) {
-          lineMap[y] = [];
-        }
-        lineMap[y].push({ x, text: item.str });
-      }
-    }
-
-    const sortedYs = Object.keys(lineMap)
-      .map(Number)
-      .sort((a, b) => b - a);
-
-    for (const y of sortedYs) {
-      const sortedItems = lineMap[y].sort((a, b) => a.x - b.x);
-      const lineStr = sortedItems.map((item) => item.text).join(' ').trim();
-      if (lineStr) {
-        extractedLines.push(lineStr);
-      }
-    }
-  }
-
-  const fullText = extractedLines.join('\n');
-  if (!fullText.trim()) {
-    return [
-      {
-        id: `pdf-empty-${Date.now()}`,
-        type: 'heading1',
-        contentVi: `KẾ HOẠCH BÀI DẠY (File PDF: ${file.name})`,
-        contentEn: '',
-        fontSize: 14,
-        isBold: true,
-      },
-      {
-        id: `pdf-empty-desc-${Date.now()}`,
-        type: 'paragraph',
-        contentVi: 'Nội dung file PDF dạng quét/scan. Thầy cô có thể gõ hoặc dán trực tiếp nội dung bài dạy tại đây.',
-        contentEn: '',
-        fontSize: 13,
-      },
-    ];
-  }
-
-  return parseRawTextToNodes(fullText);
 }
 
 function detectFormatting(el: Element): { isBold: boolean; isItalic: boolean; align?: 'left' | 'center' | 'right' | 'justify' } {

@@ -2,15 +2,11 @@ import React, { useState, useEffect } from 'react';
 import {
   LessonPlanDocument,
   PlanNode,
-  EducationLevel,
-  Subject,
   BilingualStyle,
   TranslationStyleOption,
-  CellParagraphNode,
 } from '../types';
 import { parseUploadedFileToNodes } from '../utils/documentParser';
 import { exportLessonPlanToDocx } from '../utils/docxExporter';
-import { SUBJECTS_BY_LEVEL, GRADES_BY_LEVEL } from '../utils/subjectHelpers';
 import { QualityAuditModal } from './QualityAuditModal';
 import { loadSavedApiKey } from './ApiKeyModal';
 import {
@@ -24,7 +20,6 @@ import {
   FileUp,
   Save,
   Copy,
-  Zap,
   CheckCircle,
 } from 'lucide-react';
 
@@ -53,7 +48,6 @@ export const EditorView: React.FC<EditorViewProps> = ({
 
   // Execution state
   const [isTranslating, setIsTranslating] = useState(false);
-  const [isIntegrating, setIsIntegrating] = useState(false);
   const [translationProgress, setTranslationProgress] = useState<{
     current: number;
     total: number;
@@ -84,16 +78,6 @@ export const EditorView: React.FC<EditorViewProps> = ({
       if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed) {
-          const newLevel: EducationLevel = parsed.level || 'thcs';
-          const availableSubjects = SUBJECTS_BY_LEVEL[newLevel] || [];
-          const availableGrades = GRADES_BY_LEVEL[newLevel] || [];
-
-          setCurrentDoc((prev) => ({
-            ...prev,
-            level: newLevel,
-            subject: parsed.subject || availableSubjects[0]?.value || 'toan',
-            grade: parsed.grade || availableGrades[0]?.value || 'lop8',
-          }));
           if (parsed.bilingualStyle) setBilingualStyle(parsed.bilingualStyle);
           if (parsed.translationTone) setTranslationTone(parsed.translationTone);
           if (parsed.selectedModel) setSelectedModel(parsed.selectedModel);
@@ -104,30 +88,15 @@ export const EditorView: React.FC<EditorViewProps> = ({
     }
   }, []);
 
-  const handleUpdateConfig = (updates: Partial<LessonPlanDocument>) => {
-    const updatedDoc = { ...currentDoc, ...updates };
-    setCurrentDoc(updatedDoc);
-    try {
-      localStorage.setItem(
-        SETTINGS_KEY,
-        JSON.stringify({
-          level: updatedDoc.level,
-          subject: updatedDoc.subject,
-          grade: updatedDoc.grade,
-          bilingualStyle,
-          translationTone,
-          selectedModel,
-        })
-      );
-    } catch (e) {
-      console.error('Failed to save settings:', e);
-    }
-  };
-
-  // Upload file handler
+  // Upload file handler — Strictly .docx only
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+
+    if (!file.name.toLowerCase().endsWith('.docx')) {
+      alert('Hệ thống chỉ tiếp nhận tệp Word (.docx). Vui lòng tải lên file định dạng .docx.');
+      return;
+    }
 
     setIsTranslating(true);
     try {
@@ -135,8 +104,8 @@ export const EditorView: React.FC<EditorViewProps> = ({
       const newDoc: LessonPlanDocument = {
         id: `doc-${Date.now()}`,
         title: file.name.replace(/\.[^/.]+$/, ''),
-        level: currentDoc.level,
-        subject: currentDoc.subject,
+        level: currentDoc.level || 'thcs',
+        subject: currentDoc.subject || 'toan',
         alignmentMode: currentDoc.alignmentMode,
         aiMode: currentDoc.aiMode,
         nodes,
@@ -156,7 +125,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
       }, 200);
     } catch (error) {
       console.error('File parse error:', error);
-      alert('Không thể đọc tệp Word/PDF. Vui lòng kiểm tra lại định dạng tệp.');
+      alert('Không thể đọc tệp Word (.docx). Vui lòng kiểm tra lại định dạng tệp.');
     } finally {
       setIsTranslating(false);
     }
@@ -253,8 +222,8 @@ export const EditorView: React.FC<EditorViewProps> = ({
               chunk,
               activeApiKey.trim(),
               selectedModel,
-              currentDoc.subject,
-              currentDoc.level,
+              currentDoc.subject || 'toan',
+              currentDoc.level || 'thcs',
               currentDoc.grade || 'lop8',
               translationTone
             );
@@ -343,7 +312,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
     for (const model of modelsToTry) {
       try {
         const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${userKey}`;
-        const promptText = `Bạn là chuyên gia dịch thuật tài liệu giáo dục Việt - Anh chuẩn GDPT 2018 cho môn ${subject} cấp ${level} lớp ${grade}.
+        const promptText = `Bạn là chuyên gia dịch thuật tài liệu giáo dục Việt - Anh chuẩn GDPT 2018.
 Hãy dịch mảng JSON dưới đây theo từng Paragraph/đoạn văn sang tiếng Anh thuần túy:
 
 1. Trả về đúng mảng JSON dạng: [{"id": "...", "text": "bản dịch tiếng Anh"}].
@@ -399,82 +368,7 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
     triggerToast('✓ Đã lưu bài dạy vào Thư viện thành công!');
   };
 
-  // TAB ACTION 2: AI Digital & AI Competency Integration Handler (QĐ 3439/QĐ-BGDĐT)
-  const handleIntegrateNLSAndAI = async () => {
-    setIsIntegrating(true);
-    try {
-      let serverSuccess = false;
-      try {
-        const res = await fetch('/api/integrate-nls-ai', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            nodes: currentDoc.nodes,
-            subject: currentDoc.subject,
-            level: currentDoc.level,
-            userApiKey: apiKey,
-          }),
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          if (Array.isArray(data.integratedNodes) && data.integratedNodes.length > 0) {
-            const integratedMap = new Map(data.integratedNodes.map((n: any) => [n.id, n]));
-            const updatedNodes = currentDoc.nodes.map((node) => {
-              const match: any = integratedMap.get(node.id);
-              if (match) {
-                return {
-                  ...node,
-                  contentVi: match.contentVi || node.contentVi,
-                  contentEn: match.contentEn || node.contentEn,
-                  isIntegrated: true,
-                  integrationType: match.integrationType || 'nls',
-                };
-              }
-              return node;
-            });
-            setCurrentDoc({ ...currentDoc, nodes: updatedNodes });
-            serverSuccess = true;
-          }
-        }
-      } catch (e) {
-        console.warn('Server integration failed, executing client AI integration...', e);
-      }
-
-      // Intelligent Client Fallback NLS/AI Integration (QĐ 3439/QĐ-BGDĐT)
-      if (!serverSuccess) {
-        let nlsInserted = false;
-        const updatedNodes = currentDoc.nodes.map((node, idx) => {
-          const text = (node.contentVi || '').toLowerCase();
-          if (
-            !nlsInserted &&
-            (text.includes('năng lực') || text.includes('mục tiêu') || text.includes('tiến trình') || idx === 2)
-          ) {
-            nlsInserted = true;
-            return {
-              ...node,
-              contentVi: `${node.contentVi}\n- [Tích hợp NLS & AI (QĐ 3439/QĐ-BGDĐT)]: Sử dụng phần mềm mô phỏng, thiết bị số và trợ lý AI để tra cứu, xử lý thông tin học tập.`,
-              contentEn: `${node.contentEn ? node.contentEn + '\n' : ''}- [Digital & AI Competency (Dec 3439)]: Utilizing digital tools, simulations, and AI assistants to research and process learning information.`,
-              isIntegrated: true,
-              integrationType: 'nls' as const,
-            };
-          }
-          return node;
-        });
-
-        setCurrentDoc({ ...currentDoc, nodes: updatedNodes });
-      }
-
-      triggerToast('⚡ Đã tự động tích hợp Năng lực số & AI theo QĐ 3439/QĐ-BGDĐT vào bài dạy!');
-    } catch (e) {
-      console.error('Integration error:', e);
-      triggerToast('Đã cập nhật tích hợp Năng lực số.');
-    } finally {
-      setIsIntegrating(false);
-    }
-  };
-
-  // TAB ACTION 3: Robust Copy Bilingual Text to Clipboard
+  // TAB ACTION 2: Robust Copy Bilingual Text to Clipboard
   const handleCopyToClipboard = () => {
     const textLines: string[] = [];
     currentDoc.nodes.forEach((node) => {
@@ -698,70 +592,20 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
             </div>
           </div>
 
-          {/* Subject Selection */}
-          <div className="form-group space-y-1.5">
-            <label className="text-xs font-bold text-slate-700 dark:text-slate-300">Môn học (25+ Bộ Môn)</label>
-            <select
-              value={currentDoc.subject}
-              onChange={(e) => handleUpdateConfig({ subject: e.target.value as Subject })}
-              className="w-full px-3 py-2 text-xs rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-teal-500"
-            >
-              {(SUBJECTS_BY_LEVEL[currentDoc.level] || SUBJECTS_BY_LEVEL.thcs).map((s) => (
-                <option key={s.value} value={s.value}>
-                  {s.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Level & Grade */}
-          <div className="grid grid-cols-2 gap-2">
-            <div className="form-group space-y-1.5">
-              <label className="text-xs font-bold text-slate-700 dark:text-slate-300">Cấp học</label>
-              <select
-                value={currentDoc.level}
-                onChange={(e) => {
-                  const newLevel = e.target.value as EducationLevel;
-                  const availableSubjects = SUBJECTS_BY_LEVEL[newLevel] || [];
-                  const availableGrades = GRADES_BY_LEVEL[newLevel] || [];
-                  handleUpdateConfig({
-                    level: newLevel,
-                    subject: availableSubjects[0]?.value || 'toan',
-                    grade: availableGrades[0]?.value || 'lop1',
-                  });
-                }}
-                className="w-full px-3 py-2 text-xs rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-teal-500"
-              >
-                <option value="mam_non">Mầm non</option>
-                <option value="tieu_hoc">Tiểu học</option>
-                <option value="thcs">THCS</option>
-                <option value="thpt">THPT</option>
-                <option value="gdtx">GDTX</option>
-              </select>
-            </div>
-
-            <div className="form-group space-y-1.5">
-              <label className="text-xs font-bold text-slate-700 dark:text-slate-300">Lớp</label>
-              <select
-                value={currentDoc.grade || 'lop8'}
-                onChange={(e) => handleUpdateConfig({ grade: e.target.value })}
-                className="w-full px-3 py-2 text-xs rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-teal-500"
-              >
-                {(GRADES_BY_LEVEL[currentDoc.level] || GRADES_BY_LEVEL.thcs).map((g) => (
-                  <option key={g.value} value={g.value}>
-                    {g.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
           {/* Translation Tone */}
           <div className="form-group space-y-1.5">
             <label className="text-xs font-bold text-slate-700 dark:text-slate-300">Phong cách dịch</label>
             <select
               value={translationTone}
-              onChange={(e) => setTranslationTone(e.target.value as TranslationStyleOption)}
+              onChange={(e) => {
+                const newTone = e.target.value as TranslationStyleOption;
+                setTranslationTone(newTone);
+                try {
+                  const saved = localStorage.getItem(SETTINGS_KEY);
+                  const parsed = saved ? JSON.parse(saved) : {};
+                  localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...parsed, translationTone: newTone }));
+                } catch {}
+              }}
               className="w-full px-3 py-2 text-xs rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-teal-500"
             >
               <option value="academic">Dịch sát chuyên ngành GDPT 2018</option>
@@ -796,13 +640,13 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
           </div>
         </div>
 
-        {/* FILE UPLOAD ZONE */}
+        {/* FILE UPLOAD ZONE — Strictly .docx only */}
         <div className="card-glass p-6 rounded-3xl space-y-4 text-center">
           <div className="upload-zone border-2 border-dashed border-teal-200 dark:border-teal-900/60 hover:border-teal-500 transition-all rounded-2xl p-8 cursor-pointer bg-teal-50/20 dark:bg-teal-950/10" onClick={() => document.getElementById('docx-file-input')?.click()}>
             <input
               id="docx-file-input"
               type="file"
-              accept=".docx,.pdf"
+              accept=".docx"
               onChange={handleFileUpload}
               className="hidden"
             />
@@ -810,7 +654,7 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
               <FileUp className="w-6 h-6" />
             </div>
             <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-              Kéo thả hoặc nhấp để tải Kế hoạch bài dạy (.docx hoặc .pdf)
+              Kéo thả hoặc nhấp để tải Kế hoạch bài dạy (.docx)
             </h3>
             <p className="text-xs text-slate-400 mt-1">
               Bảo lưu 100% định dạng gốc (căn đều 2 bên, bảng biểu, in đậm, in nghiêng & công thức toán)
@@ -841,16 +685,14 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
           )}
         </div>
 
-        {/* TRANSLATION & INTEGRATION PROGRESS CARD */}
-        {(isTranslating || isIntegrating || translationProgress) && (
+        {/* TRANSLATION PROGRESS CARD */}
+        {(isTranslating || translationProgress) && (
           <div className="card-glass p-5 rounded-2xl bg-teal-50/60 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800 space-y-2">
             <div className="flex items-center justify-between text-xs font-bold text-teal-900 dark:text-teal-200">
               <span className="flex items-center space-x-2">
                 <Sparkles className="w-4 h-4 text-amber-500 animate-spin" />
                 <span>
-                  {isIntegrating
-                    ? 'AI đang phân tích và tích hợp Năng lực số & AI (QĐ 3439/QĐ-BGDĐT)...'
-                    : `Đang dịch thuật giáo án song ngữ theo từng Paragraph (${translationProgress?.current || 0}/${translationProgress?.total || 0} phần tử)...`}
+                  Đang dịch thuật giáo án song ngữ theo từng Paragraph ({translationProgress?.current || 0}/{translationProgress?.total || 0} phần tử)...
                 </span>
               </span>
               <span>{translationProgress?.pct || 0}%</span>
@@ -868,7 +710,7 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
         {/* SCIENTIFIC PREVIEW PANEL (A4 SHEET PREVIEW) */}
         {currentDoc.nodes.length > 0 && (
           <div className="card-glass rounded-3xl shadow-sm overflow-hidden flex flex-col">
-            {/* Action Bar Header with 4 Quick Action Tabs */}
+            {/* Action Bar Header with 3 Quick Action Tabs */}
             <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 bg-slate-50/70 dark:bg-slate-900/70">
               <div className="flex items-center space-x-2">
                 <button
@@ -893,7 +735,7 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
                 </button>
               </div>
 
-              {/* 4 ACTIVE QUICK ACTION TOOLBAR BUTTONS */}
+              {/* 3 ACTIVE QUICK ACTION TOOLBAR BUTTONS */}
               <div className="flex flex-wrap items-center gap-2">
                 {/* 1. Lưu Thư viện */}
                 <button
@@ -905,18 +747,7 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
                   <span>Lưu Thư viện</span>
                 </button>
 
-                {/* 2. Tích hợp NLS/AI (QĐ 3439) */}
-                <button
-                  onClick={handleIntegrateNLSAndAI}
-                  disabled={isIntegrating}
-                  className="px-3.5 py-2 rounded-xl bg-purple-50 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300 font-extrabold text-xs hover:bg-purple-100 border border-purple-300 dark:border-purple-700 transition-all shadow-sm active:scale-95 flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
-                  title="AI tự động tích hợp Năng lực số & AI theo QĐ 3439"
-                >
-                  <Zap className="w-4 h-4 text-purple-600" />
-                  <span>Tích hợp NLS/AI (QĐ 3439)</span>
-                </button>
-
-                {/* 3. Sao chép */}
+                {/* 2. Sao chép */}
                 <button
                   onClick={handleCopyToClipboard}
                   className="px-3.5 py-2 rounded-xl bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-extrabold text-xs hover:bg-slate-300 border border-slate-300 dark:border-slate-700 transition-all shadow-sm active:scale-95 flex items-center space-x-1.5 cursor-pointer"
@@ -926,7 +757,7 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
                   <span>Sao chép</span>
                 </button>
 
-                {/* 4. Soát lỗi AI */}
+                {/* 3. Soát lỗi AI */}
                 <button
                   onClick={() => setIsQualityOpen(true)}
                   className="px-3.5 py-2 rounded-xl bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 font-extrabold text-xs hover:bg-amber-100 border border-amber-300 dark:border-amber-700 transition-all shadow-sm active:scale-95 flex items-center space-x-1.5 cursor-pointer"
