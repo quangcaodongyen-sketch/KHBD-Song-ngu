@@ -120,8 +120,10 @@ function parseHtmlToNodes(html: string): PlanNode[] {
   for (const el of elements) {
     const tagName = el.tagName.toLowerCase();
     const textContent = el.textContent?.trim() || '';
+    const imgEl = el.querySelector('img');
+    const imageData = imgEl ? imgEl.getAttribute('src') || undefined : undefined;
 
-    if (!textContent && tagName !== 'table') continue;
+    if (!textContent && tagName !== 'table' && !imageData) continue;
 
     if (tagName === 'h1' || tagName === 'h2') {
       nodes.push({
@@ -129,6 +131,7 @@ function parseHtmlToNodes(html: string): PlanNode[] {
         type: tagName === 'h1' ? 'heading1' : 'heading2',
         contentVi: textContent,
         contentEn: '',
+        imageData,
         fontSize: tagName === 'h1' ? 14 : 13,
         isBold: true,
       });
@@ -138,17 +141,20 @@ function parseHtmlToNodes(html: string): PlanNode[] {
         type: 'heading3',
         contentVi: textContent,
         contentEn: '',
+        imageData,
         fontSize: 13,
         isBold: true,
       });
     } else if (tagName === 'ul' || tagName === 'ol') {
       const lis = Array.from(el.querySelectorAll('li'));
       for (const li of lis) {
+        const liImg = li.querySelector('img');
         nodes.push({
           id: `pnode-${nodeCount++}`,
           type: 'bullet',
           contentVi: li.textContent?.trim() || '',
           contentEn: '',
+          imageData: liImg ? liImg.getAttribute('src') || undefined : undefined,
           fontSize: 13,
         });
       }
@@ -159,12 +165,16 @@ function parseHtmlToNodes(html: string): PlanNode[] {
 
       for (const tr of rows) {
         const cells = Array.from(tr.querySelectorAll('th, td'));
-        const cellNodes = cells.map((cell, cIdx) => ({
-          id: `tc-${nodeCount}-${rowIdx}-${cIdx}`,
-          contentVi: cell.textContent?.trim() || '',
-          contentEn: '',
-          isHeader: cell.tagName.toLowerCase() === 'th' || rowIdx === 1,
-        }));
+        const cellNodes = cells.map((cell, cIdx) => {
+          const cellImg = cell.querySelector('img');
+          return {
+            id: `tc-${nodeCount}-${rowIdx}-${cIdx}`,
+            contentVi: cell.textContent?.trim() || '',
+            contentEn: '',
+            isHeader: cell.tagName.toLowerCase() === 'th' || rowIdx === 1,
+            imageData: cellImg ? cellImg.getAttribute('src') || undefined : undefined,
+          };
+        });
 
         tableRows.push({
           id: `tr-${nodeCount}-${rowIdx++}`,
@@ -181,7 +191,7 @@ function parseHtmlToNodes(html: string): PlanNode[] {
         tableRows,
       });
     } else {
-      // Paragraph
+      // Paragraph or image paragraph
       const isHeaderLike =
         textContent.startsWith('I.') ||
         textContent.startsWith('II.') ||
@@ -196,6 +206,7 @@ function parseHtmlToNodes(html: string): PlanNode[] {
         type: isHeaderLike ? 'heading1' : 'paragraph',
         contentVi: textContent,
         contentEn: '',
+        imageData,
         fontSize: isHeaderLike ? 14 : 13,
         isBold: isHeaderLike,
       });

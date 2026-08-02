@@ -71,6 +71,7 @@ export interface TableCellNode {
   contentVi: string;
   contentEn: string;
   isHeader?: boolean;
+  imageData?: string;
 }
 
 export interface TableRowNode {
@@ -90,6 +91,7 @@ export interface PlanNode {
   type: NodeType;
   contentVi: string;
   contentEn: string;
+  imageData?: string;
   fontSize?: number; // e.g. 13 or 14
   isBold?: boolean;
   isItalic?: boolean;

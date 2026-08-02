@@ -10,7 +10,6 @@ import {
   TranslationMode,
   BilingualStyle,
   TranslationStyleOption,
-  IntegrationOptions,
 } from '../types';
 import { parseUploadedFileToNodes } from '../utils/documentParser';
 import { exportLessonPlanToDocx } from '../utils/docxExporter';
@@ -42,11 +41,6 @@ import {
   AlertTriangle,
   Layers,
   Plus,
-  Cpu,
-  Globe,
-  Award,
-  CheckSquare,
-  Square,
 } from 'lucide-react';
 
 interface EditorViewProps {
@@ -71,14 +65,6 @@ export const EditorView: React.FC<EditorViewProps> = ({
   const [bilingualStyle, setBilingualStyle] = useState<BilingualStyle>('parallel');
   const [translationTone, setTranslationTone] = useState<TranslationStyleOption>('academic');
   const [apiKey, setApiKey] = useState<string>('');
-
-  // Tùy chọn tích hợp NLS & AI (QĐ 3439/QĐ-BGDĐT)
-  const [integrations, setIntegrations] = useState<IntegrationOptions>({
-    nls: true,
-    ai3439: true,
-    stem: false,
-    env: false,
-  });
 
   // Scope: Full vs Partial
   const [translationScope, setTranslationScope] = useState<'full' | 'partial'>('full');
@@ -123,7 +109,6 @@ export const EditorView: React.FC<EditorViewProps> = ({
           if (parsed.translationTone) setTranslationTone(parsed.translationTone);
           if (parsed.translationMode) setTranslationMode(parsed.translationMode);
           if (parsed.selectedModel) setSelectedModel(parsed.selectedModel);
-          if (parsed.integrations) setIntegrations(parsed.integrations);
         }
       }
     } catch (e) {
@@ -144,76 +129,11 @@ export const EditorView: React.FC<EditorViewProps> = ({
         translationTone,
         translationMode,
         selectedModel,
-        integrations,
       };
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(configToSave));
     } catch (e) {
       console.error('Failed to save settings:', e);
     }
-  };
-
-  // Auto Insert NLS & AI (QĐ 3439/QĐ-BGDĐT) Integrated Nodes (in RED text)
-  const applyIntegrationsToDoc = () => {
-    if (currentDoc.nodes.length === 0) {
-      alert('Vui lòng tải lên file giáo án Word trước khi tích hợp NLS & AI.');
-      return;
-    }
-
-    const newNodes: PlanNode[] = [];
-    const idSeed = Date.now();
-
-    // Check if target nodes already have NLS/AI
-    const hasNls = currentDoc.nodes.some((n) => n.integrationType === 'nls');
-    const hasAi = currentDoc.nodes.some((n) => n.integrationType === 'ai_3439');
-
-    currentDoc.nodes.forEach((node) => {
-      newNodes.push(node);
-
-      // Insert under Competencies section
-      if (node.contentVi.includes('Năng lực') || node.contentVi.includes('MỤC TIÊU')) {
-        if (integrations.nls && !hasNls) {
-          newNodes.push({
-            id: `integrated-nls-${idSeed}`,
-            type: 'bullet',
-            contentVi: '[NLS - Tích hợp Năng lực số]: Tự chủ tìm kiếm, khai thác và đánh giá dữ liệu thông tin số trên môi trường mạng an toàn, tuân thủ Luật An ninh mạng.',
-            contentEn: '[Digital Competency - NLS]: Independently search, exploit, and evaluate digital data in a safe network environment.',
-            fontSize: 13,
-            isIntegrated: true,
-            integrationType: 'nls',
-          });
-        }
-
-        if (integrations.ai3439 && !hasAi) {
-          newNodes.push({
-            id: `integrated-ai-${idSeed}`,
-            type: 'bullet',
-            contentVi: '[AI - Tích hợp Năng lực Trí tuệ nhân tạo theo QĐ 3439/QĐ-BGDĐT]: Nhận biết, khai thác và ứng dụng các trợ lý AI học tập có trách nhiệm, hiểu nguyên lý hoạt động cơ bản của AI.',
-            contentEn: '[AI Competency - Decision 3439/QD-BGDDT]: Recognize, exploit, and apply AI learning assistants responsibly, understanding basic AI operating principles.',
-            fontSize: 13,
-            isIntegrated: true,
-            integrationType: 'ai_3439',
-          });
-        }
-
-        if (integrations.stem) {
-          newNodes.push({
-            id: `integrated-stem-${idSeed}`,
-            type: 'bullet',
-            contentVi: '[STEM - Tích hợp Giáo dục STEM]: Ứng dụng quy trình thiết kế kỹ thuật và mô hình thực nghiệm giải quyết vấn đề thực tiễn bài học.',
-            contentEn: '[STEM Integration]: Apply engineering design processes and experimental models to solve practical lesson problems.',
-            fontSize: 13,
-            isIntegrated: true,
-            integrationType: 'stem',
-          });
-        }
-      }
-    });
-
-    setCurrentDoc({
-      ...currentDoc,
-      nodes: newNodes,
-      updatedAt: new Date().toISOString(),
-    });
   };
 
   // Handle File Upload
@@ -256,9 +176,6 @@ export const EditorView: React.FC<EditorViewProps> = ({
       onOpenApiKeyModal();
       return;
     }
-
-    // Apply NLS & AI integrations if checked
-    applyIntegrationsToDoc();
 
     setIsTranslating(true);
     setCurrentStep(2);
@@ -303,7 +220,6 @@ export const EditorView: React.FC<EditorViewProps> = ({
           await new Promise((r) => setTimeout(r, 600));
           chunkTrans = chunkTexts.map((text) => mockTranslateText(text));
         } else {
-          // First try server proxy API
           let apiSuccess = false;
           try {
             const res = await fetch('/api/translate', {
@@ -331,7 +247,6 @@ export const EditorView: React.FC<EditorViewProps> = ({
             console.warn('Server proxy translation failed, trying direct Gemini API call...', e);
           }
 
-          // If server proxy failed but client has API key, call Gemini API directly
           if (!apiSuccess && apiKey && apiKey.trim().length > 10) {
             try {
               chunkTrans = await translateChunkWithGeminiDirect(
@@ -349,7 +264,6 @@ export const EditorView: React.FC<EditorViewProps> = ({
             }
           }
 
-          // Fallback to line-by-line phrase translator if API is unavailable
           if (!apiSuccess) {
             chunkTrans = chunkTexts.map((t) => mockTranslateText(t));
           }
@@ -392,7 +306,6 @@ export const EditorView: React.FC<EditorViewProps> = ({
         });
       }
 
-      setCurrentStep(3);
     } catch (err) {
       console.error('Translation error:', err);
     } finally {
@@ -413,14 +326,18 @@ export const EditorView: React.FC<EditorViewProps> = ({
   ): Promise<string[]> => {
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${userKey}`;
     const promptText = `Bạn là chuyên gia dịch thuật giáo án Việt - Anh chuẩn Bộ GD&ĐT.
-Dịch danh sách các câu tiếng Việt sau sang tiếng Anh cho giáo án môn ${subject} cấp ${level} lớp ${grade}.
+Dịch TẤT CẢ các câu/đoạn tiếng Việt trong mảng dưới đây sang tiếng Anh cho giáo án môn ${subject} cấp ${level} lớp ${grade}.
 
 QUY TẮC BẮT BUỘC:
-1. Dịch chính xác từng câu tương ứng theo đúng nghĩa gốc.
-2. KHÔNG LẶP LẠI TIẾNG VIỆT, KHÔNG BỌC NGOẶC ĐƠN, KHÔNG DÙNG CÂU MẪU LẶP LẠI DỐT NÁT.
-3. Trả về JSON duy nhất có cấu trúc: {"translations": ["câu 1 tiếng Anh", "câu 2 tiếng Anh", ...]}
+1. Trả về mảng JSON chứa chính xác ${chunk.length} phần tử bản dịch tương ứng theo đúng thứ tự 1-1 với mảng đầu vào.
+2. Dịch chính xác từng câu, không bỏ sót bất kỳ câu nào.
+3. TUYỆT ĐỐ KHÔNG LẶP LẠI TIẾNG VIỆT, KHÔNG BỌC NGOẶC ĐƠN.
+4. Giữ nguyên công thức toán, số liệu, tên viết tắt, mã hiệu Công văn.
 
-Mảng tiếng Việt: ${JSON.stringify(chunk)}`;
+Mảng tiếng Việt cần dịch (${chunk.length} phần tử):
+${JSON.stringify(chunk, null, 2)}
+
+Hãy trả về duy nhất mảng JSON: {"translations": ["bản dịch 1", "bản dịch 2", ...]}`;
 
     const response = await fetch(endpoint, {
       method: 'POST',
@@ -442,12 +359,12 @@ Mảng tiếng Việt: ${JSON.stringify(chunk)}`;
     return parsed.translations || [];
   };
 
-  // Smart sentence-by-sentence phrase translator helper (100% accurate phrase mapping)
+  // Smart sentence-by-sentence phrase translator helper (Ensures EVERY sentence gets translated)
   const mockTranslateText = (text: string): string => {
     if (!text || !text.trim()) return '';
     let clean = text.trim();
 
-    // Section headings
+    // Section headings & structural markers
     if (/^I\.\s*MỤC TIÊU/i.test(clean)) return 'I. OBJECTIVES:';
     if (/^1\.\s*Kiến thức/i.test(clean)) return '1. Knowledge:';
     if (/^2\.\s*Về năng lực/i.test(clean)) return '2. Competencies:';
@@ -465,10 +382,10 @@ Mảng tiếng Việt: ${JSON.stringify(chunk)}`;
     if (/^c\)\s*Sản phẩm/i.test(clean)) return 'c) Expected Products:';
     if (/^d\)\s*Tổ chức thực hiện/i.test(clean)) return 'd) Implementation / Execution:';
 
-    // Dynamic phrase translation
+    // Dynamic vocabulary & phrase translation
     let translated = clean;
 
-    // Equipment & Equipment list lines
+    // Prefixes & Titles
     translated = translated.replace(/^1\.\s*Giáo viên:/gi, '1. Teacher:');
     translated = translated.replace(/^2\.\s*Học sinh:/gi, '2. Students:');
     translated = translated.replace(/Giáo viên:/gi, 'Teacher:');
@@ -477,52 +394,64 @@ Mảng tiếng Việt: ${JSON.stringify(chunk)}`;
     translated = translated.replace(/kế hoạch bài dạy/gi, 'lesson plan');
     translated = translated.replace(/phiếu học tập/gi, 'learning worksheets');
     translated = translated.replace(/Sách giáo khoa/gi, 'Textbook');
+    translated = translated.replace(/bài tập/gi, 'exercises');
+    translated = translated.replace(/thảo luận/gi, 'discuss');
+    translated = translated.replace(/nhóm/gi, 'groups');
+    translated = translated.replace(/quan sát/gi, 'observe');
+    translated = translated.replace(/thực hành/gi, 'practice');
+    translated = translated.replace(/báo cáo/gi, 'report');
+    translated = translated.replace(/trình bày/gi, 'present');
+    translated = translated.replace(/nhận xét/gi, 'comment and assess');
+    translated = translated.replace(/đánh giá/gi, 'evaluate');
+    translated = translated.replace(/kết luận/gi, 'conclude');
+    translated = translated.replace(/kết quả/gi, 'results / products');
+    translated = translated.replace(/nhiệm vụ/gi, 'tasks');
+    translated = translated.replace(/yêu cầu/gi, 'requirements');
+
+    // School subjects & Grades
     translated = translated.replace(/Tin học (\d+)/gi, 'Computer Science $1');
     translated = translated.replace(/Toán (\d+)/gi, 'Mathematics $1');
     translated = translated.replace(/Ngữ văn (\d+)/gi, 'Literature $1');
+    translated = translated.replace(/Vật lí (\d+)/gi, 'Physics $1');
+    translated = translated.replace(/Hóa học (\d+)/gi, 'Chemistry $1');
+    translated = translated.replace(/Sinh học (\d+)/gi, 'Biology $1');
+    translated = translated.replace(/Lịch sử (\d+)/gi, 'History $1');
+    translated = translated.replace(/Địa lí (\d+)/gi, 'Geography $1');
     translated = translated.replace(/Hoạt động (\d+):/gi, 'Activity $1:');
     translated = translated.replace(/Khởi động/gi, 'Warm-up');
-    translated = translated.replace(/Tạo tâm thế hứng thú cho học sinh/gi, 'Create interest and motivation for students');
-    translated = translated.replace(/và từng bước làm quen bài học/gi, 'and step-by-step introduce the lesson');
+
+    // Pedagogical Objectives & Competencies
+    translated = translated.replace(/Tạo tâm thế hứng thú cho học sinh/gi, 'Create motivation and interest for students');
+    translated = translated.replace(/từng bước làm quen bài học/gi, 'and step-by-step introduce the lesson');
     translated = translated.replace(/Củng cố các kiến thức đã học/gi, 'Consolidate previously learned knowledge');
     translated = translated.replace(/giúp học sinh hệ thống lại kiến thức/gi, 'helping students systemize knowledge');
-
-    // Competency dictionary replacements
     translated = translated.replace(/Năng lực tự chủ, tự học/gi, 'Self-reliance and self-learning competency');
     translated = translated.replace(/Năng lực giao tiếp và hợp tác/gi, 'Communication and collaboration competency');
     translated = translated.replace(/Năng lực giải quyết vấn đề và sáng tạo/gi, 'Problem solving and creativity competency');
-    translated = translated.replace(/Năng lực Tin học/gi, 'Computer Science / Digital competency');
+    translated = translated.replace(/Năng lực Tin học/gi, 'Digital & Computer Science competency');
     translated = translated.replace(/Phẩm chất/gi, 'Qualities');
     translated = translated.replace(/Chăm chỉ/gi, 'Diligence');
     translated = translated.replace(/Trung thực/gi, 'Honesty');
-    translated = translated.replace(/Trách nhiệm/gi, 'Responsibility');
-    translated = translated.replace(/Nhân ái/gi, 'Kindness & Compassion');
-    translated = translated.replace(/Yêu nước/gi, 'Patriotism');
-
-    // If translated changed from original, return translated result
     if (translated !== clean) {
       return translated;
     }
-
-    return 'Students complete assigned learning tasks and record key takeaways in the worksheet.';
+    return clean;
   };
 
   const handleTranslateAll = () => performTranslation(currentDoc.nodes);
 
   const handleReset = () => {
     if (confirm('Khôi phục bản tiếng Việt gốc và làm mới trang xem trước?')) {
-      const resetNodes = currentDoc.nodes
-        .filter((n) => !n.isIntegrated)
-        .map((n) => ({
-          ...n,
-          contentEn: '',
-          tableRows: n.tableRows
-            ? n.tableRows.map((r) => ({
-                ...r,
-                cells: r.cells.map((c) => ({ ...c, contentEn: '' })),
-              }))
-            : undefined,
-        }));
+      const resetNodes = currentDoc.nodes.map((n) => ({
+        ...n,
+        contentEn: '',
+        tableRows: n.tableRows
+          ? n.tableRows.map((r) => ({
+              ...r,
+              cells: r.cells.map((c) => ({ ...c, contentEn: '' })),
+            }))
+          : undefined,
+      }));
       setCurrentDoc({ ...currentDoc, nodes: resetNodes });
       setCurrentStep(1);
     }
@@ -567,90 +496,10 @@ Mảng tiếng Việt: ${JSON.stringify(chunk)}`;
       <aside className="settings-sidebar card">
         <div className="card-header">
           <Sliders className="w-5 h-5 text-indigo-500" />
-          <h2>Cấu Hình Soạn Giáo Án NLS & AI</h2>
+          <h2>Cấu Hình Dịch Thuật</h2>
         </div>
 
         <div className="card-body">
-          {/* TÙY CHỌN TÍCH HỢP NĂNG LỰC SỐ (NLS) & AI (QĐ 3439/QĐ-BGDĐT) */}
-          <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-2.5">
-            <div className="flex items-center space-x-2 text-xs font-bold text-amber-600 dark:text-amber-400">
-              <Cpu className="w-4 h-4 text-amber-500" />
-              <span>TÙY CHỌN TÍCH HỢP KHBD (CHỮ MÀU ĐỎ)</span>
-            </div>
-
-            <div className="space-y-2 text-xs">
-              <label
-                className="flex items-center space-x-2 cursor-pointer"
-                onClick={() => setIntegrations({ ...integrations, nls: !integrations.nls })}
-              >
-                {integrations.nls ? (
-                  <CheckSquare className="w-4 h-4 text-red-500 shrink-0" />
-                ) : (
-                  <Square className="w-4 h-4 text-slate-400 shrink-0" />
-                )}
-                <span className={integrations.nls ? 'font-bold text-red-600 dark:text-red-400' : 'text-slate-600 dark:text-slate-300'}>
-                  Tích hợp Năng lực số (NLS) theo PPCT
-                </span>
-              </label>
-
-              <label
-                className="flex items-center space-x-2 cursor-pointer"
-                onClick={() => setIntegrations({ ...integrations, ai3439: !integrations.ai3439 })}
-              >
-                {integrations.ai3439 ? (
-                  <CheckSquare className="w-4 h-4 text-red-500 shrink-0" />
-                ) : (
-                  <Square className="w-4 h-4 text-slate-400 shrink-0" />
-                )}
-                <span className={integrations.ai3439 ? 'font-bold text-red-600 dark:text-red-400' : 'text-slate-600 dark:text-slate-300'}>
-                  Tích hợp Năng lực AI (QĐ 3439/QĐ-BGDĐT)
-                </span>
-              </label>
-
-              <label
-                className="flex items-center space-x-2 cursor-pointer"
-                onClick={() => setIntegrations({ ...integrations, stem: !integrations.stem })}
-              >
-                {integrations.stem ? (
-                  <CheckSquare className="w-4 h-4 text-red-500 shrink-0" />
-                ) : (
-                  <Square className="w-4 h-4 text-slate-400 shrink-0" />
-                )}
-                <span className={integrations.stem ? 'font-bold text-red-600 dark:text-red-400' : 'text-slate-600 dark:text-slate-300'}>
-                  Tích hợp Giáo dục STEM
-                </span>
-              </label>
-            </div>
-
-            <button
-              onClick={applyIntegrationsToDoc}
-              className="w-full py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-bold transition-all shadow-sm flex items-center justify-center space-x-1.5"
-            >
-              <Cpu className="w-3.5 h-3.5" />
-              <span>Chèn NLS & AI vào Giáo Án ngay</span>
-            </button>
-          </div>
-
-          {/* Phạm vi dịch song ngữ */}
-          <div className="form-group">
-            <label>Phạm vi dịch song ngữ</label>
-            <div className="radio-group-toggle">
-              <label
-                className={`radio-toggle-label ${translationScope === 'full' ? 'active' : ''}`}
-                onClick={() => setTranslationScope('full')}
-              >
-                <span>Full Giáo Án</span>
-              </label>
-
-              <label
-                className={`radio-toggle-label ${translationScope === 'partial' ? 'active' : ''}`}
-                onClick={() => setTranslationScope('partial')}
-              >
-                <span>1 Phần chọn</span>
-              </label>
-            </div>
-          </div>
-
           {/* Gemini API Key Section */}
           <div className="form-group">
             <label>
@@ -701,7 +550,7 @@ Mảng tiếng Việt: ${JSON.stringify(chunk)}`;
 
           {/* Mode Switcher: Mock vs Gemini AI */}
           <div className="form-group">
-            <label>Chế độ dịch AI</label>
+            <label>Chế độ dịch</label>
             <div className="radio-group-toggle">
               <label
                 className={`radio-toggle-label ${
@@ -729,10 +578,10 @@ Mảng tiếng Việt: ${JSON.stringify(chunk)}`;
             </div>
           </div>
 
-          {/* Gemini AI Models (Shown in AI mode) */}
+          {/* Gemini AI Models */}
           {translationMode === 'ai' && (
             <div className="form-group">
-              <label>Mô hình AI (Tự động chuyển khi quá tải)</label>
+              <label>Mô hình AI</label>
               <div className="space-y-2">
                 {[
                   {
@@ -743,7 +592,7 @@ Mảng tiếng Việt: ${JSON.stringify(chunk)}`;
                   {
                     id: 'gemini-2.5-pro',
                     title: 'gemini-2.5-pro 💎',
-                    desc: 'Chất lượng dịch thuật chuyên sâu tốt nhất cho sư phạm.',
+                    desc: 'Chất lượng dịch thuật chuyên sâu tốt nhất cho chuyên môn.',
                   },
                   {
                     id: 'gemini-1.5-flash',
@@ -899,14 +748,14 @@ Mảng tiếng Việt: ${JSON.stringify(chunk)}`;
 
           <div className={`step-item ${currentStep >= 2 ? 'active' : ''} ${currentStep > 2 ? 'completed' : ''}`}>
             <span className="step-number">2</span>
-            <span className="step-label">Năng lực số & Song ngữ</span>
+            <span className="step-label">Dịch & Xem trước</span>
           </div>
 
           <div className="step-line" />
 
           <div className={`step-item ${currentStep >= 3 ? 'active' : ''}`}>
             <span className="step-number">3</span>
-            <span className="step-label">Tải file Word (.docx)</span>
+            <span className="step-label">Tải file Word song ngữ</span>
           </div>
         </div>
 
@@ -952,22 +801,14 @@ Mảng tiếng Việt: ${JSON.stringify(chunk)}`;
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  onClick={applyIntegrationsToDoc}
-                  className="px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold shadow-sm transition-all flex items-center space-x-1.5"
-                >
-                  <Cpu className="w-4 h-4" />
-                  <span>Tích hợp NLS & AI (Đỏ)</span>
-                </button>
-
+              <div className="flex items-center space-x-3">
                 <button
                   onClick={handleTranslateAll}
                   disabled={isTranslating}
                   className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white text-xs font-bold shadow-md transition-all flex items-center space-x-2 disabled:opacity-50"
                 >
                   <Sparkles className="w-4 h-4 text-amber-300" />
-                  <span>TẠO NLS & SONG NGỮ</span>
+                  <span>TẠO GIÁO ÁN SONG NGỮ</span>
                 </button>
               </div>
             </div>
@@ -981,7 +822,7 @@ Mảng tiếng Việt: ${JSON.stringify(chunk)}`;
               <span className="flex items-center space-x-2">
                 <Sparkles className="w-4 h-4 text-amber-500 animate-spin" />
                 <span>
-                  Đang tích hợp Năng lực số (NLS) & dịch thuật giáo án ({translationProgress?.current || 0}/{translationProgress?.total || 0} phần tử)...
+                  Đang dịch thuật giáo án song ngữ ({translationProgress?.current || 0}/{translationProgress?.total || 0} phần tử)...
                 </span>
               </span>
               <span>{translationProgress?.pct || 0}%</span>
@@ -1004,7 +845,7 @@ Mảng tiếng Việt: ${JSON.stringify(chunk)}`;
               <div className="flex items-center space-x-2">
                 <FileText className="w-4 h-4 text-indigo-500" />
                 <h2 className="text-sm font-bold text-slate-900 dark:text-white">
-                  Xem Trước Giáo Án NLS & AI & Song Ngữ
+                  Xem Trước Giáo Án
                 </h2>
               </div>
 
@@ -1020,7 +861,7 @@ Mảng tiếng Việt: ${JSON.stringify(chunk)}`;
                   onClick={() => setPreviewTab('bilingual')}
                   className={`tab-btn ${previewTab === 'bilingual' ? 'active' : ''}`}
                 >
-                  Bản NLS & Song ngữ
+                  Bản dịch song ngữ
                 </button>
               </div>
             </div>
@@ -1036,8 +877,6 @@ Mảng tiếng Việt: ${JSON.stringify(chunk)}`;
                     node.type === 'heading3' ||
                     node.type === 'title' ||
                     /^(I|II|III|IV|V|VI|VII|VIII|IX|X|\d+|[A-Z])[\.\:]\s*/i.test((node.contentVi || '').trim());
-
-                  const isRedText = node.isIntegrated;
 
                   if (node.type === 'table' && node.tableRows) {
                     return (
@@ -1061,6 +900,13 @@ Mảng tiếng Việt: ${JSON.stringify(chunk)}`;
                                         : ''
                                     }`}
                                   >
+                                    {cell.imageData && (
+                                      <img
+                                        src={cell.imageData}
+                                        alt="Diagram"
+                                        className="max-w-[220px] max-h-[160px] my-1 rounded border border-slate-200 mx-auto block"
+                                      />
+                                    )}
                                     <div className="text-slate-900 dark:text-slate-100">
                                       {cell.contentVi}
                                     </div>
@@ -1092,7 +938,6 @@ Mảng tiếng Việt: ${JSON.stringify(chunk)}`;
                     );
                   }
 
-                  // Heading or Paragraph lines: Red text for integrated NLS / AI content!
                   return (
                     <div
                       key={node.id}
@@ -1101,10 +946,17 @@ Mảng tiếng Việt: ${JSON.stringify(chunk)}`;
                         isSelected ? 'ring-2 ring-indigo-500 bg-indigo-50/20' : ''
                       }`}
                     >
+                      {node.imageData && (
+                        <img
+                          src={node.imageData}
+                          alt="Illustration"
+                          className="max-w-[300px] max-h-[200px] my-2 rounded border border-slate-200 mx-auto block"
+                        />
+                      )}
                       <div
-                        className={`text-[13pt] font-['Times_New_Roman',_Times,_serif] ${
+                        className={`text-slate-900 dark:text-slate-100 text-[13pt] font-['Times_New_Roman',_Times,_serif] ${
                           isHeader ? 'font-bold' : 'font-normal'
-                        } ${isRedText ? 'text-red-600 dark:text-red-400 font-bold' : 'text-slate-900 dark:text-slate-100'}`}
+                        }`}
                       >
                         {node.contentVi}
                       </div>
@@ -1141,7 +993,7 @@ Mảng tiếng Việt: ${JSON.stringify(chunk)}`;
                 className="px-6 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-md flex items-center space-x-2"
               >
                 <Download className="w-4 h-4" />
-                <span>Tải file Word NLS & Song ngữ (.docx)</span>
+                <span>Tải file Word song ngữ (.docx)</span>
               </button>
             </div>
           </div>
@@ -1155,9 +1007,6 @@ Mảng tiếng Việt: ${JSON.stringify(chunk)}`;
           </div>
 
           <ul className="text-xs text-slate-600 dark:text-slate-400 space-y-2 list-disc pl-5 leading-relaxed">
-            <li>
-              <strong>Tích hợp Năng lực số & AI:</strong> Các nội dung tích hợp NLS và Năng lực AI theo QĐ 3439/QĐ-BGDĐT được tự động thêm vào giáo án với <span className="text-red-600 font-bold">chữ màu đỏ</span> nổi bật.
-            </li>
             <li>
               <strong>Kiểm duyệt bản dịch:</strong> Bản dịch do trí tuệ nhân tạo (AI) thực hiện chỉ mang tính chất hỗ trợ chuyên môn. Kính mong thầy/cô duyệt lại toàn bộ thuật ngữ chuyên ngành trước khi sử dụng giảng dạy chính thức.
             </li>

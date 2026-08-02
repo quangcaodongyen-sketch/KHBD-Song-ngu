@@ -14,17 +14,29 @@ import {
   PageNumber,
   HeadingLevel,
   VerticalAlign,
+  ImageRun,
 } from 'docx';
 import { saveAs } from 'file-saver';
 import { LessonPlanDocument, PlanNode } from '../types';
 
 export const BLUE_COLOR = '003399'; // RGB(0, 51, 153) — Chuẩn màu xanh Bộ GD&ĐT
 
+function base64ToUint8Array(base64: string): Uint8Array {
+  const cleanBase64 = base64.replace(/^data:image\/\w+;base64,/, '');
+  const binaryString = atob(cleanBase64);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+
 /**
  * Export bilingual lesson plan to Word (.docx) with professional formatting:
  * - Vietnamese: Bold/Normal black Times New Roman 13pt
  * - English: Italic blue (#003399) Times New Roman 13pt, on the line below
  * - Tables: Vi + En stacked in each cell
+ * - Embedded Images:Preserved inside cells & paragraphs
  * - No branding headers/footers for clean print output
  */
 export async function exportLessonPlanToDocx(doc: LessonPlanDocument) {
@@ -39,6 +51,26 @@ export async function exportLessonPlanToDocx(doc: LessonPlanDocument) {
       const docxRows = node.tableRows.map((row) => {
         const docxCells = row.cells.map((cell) => {
           const cellParagraphs: Paragraph[] = [];
+
+          // Embedded Cell Image (e.g. blackboard picture, diagram)
+          if (cell.imageData && cell.imageData.startsWith('data:image')) {
+            try {
+              cellParagraphs.push(
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  spacing: { before: 40, after: 40 },
+                  children: [
+                    new ImageRun({
+                      data: base64ToUint8Array(cell.imageData),
+                      transformation: { width: 200, height: 140 },
+                    }),
+                  ],
+                })
+              );
+            } catch (e) {
+              console.warn('Image embedding error:', e);
+            }
+          }
 
           // Vietnamese cell text
           cellParagraphs.push(
@@ -56,14 +88,15 @@ export async function exportLessonPlanToDocx(doc: LessonPlanDocument) {
             })
           );
 
-          // English cell text (italic blue, below Vietnamese)
+          // English cell text (italic blue, below Vietnamese, no parentheses)
           if (cell.contentEn) {
+            const cleanEnText = cell.contentEn.replace(/^\s*[\(\[\{]\s*/, '').replace(/\s*[\)\]\}]\s*$/, '').trim();
             cellParagraphs.push(
               new Paragraph({
                 spacing: { before: 20, after: 20 },
                 children: [
                   new TextRun({
-                    text: cell.contentEn,
+                    text: cleanEnText,
                     italics: true,
                     bold: false,
                     size: DEFAULT_FONT_SIZE,
@@ -131,6 +164,26 @@ export async function exportLessonPlanToDocx(doc: LessonPlanDocument) {
       node.type === 'title' ||
       (node.align === 'center');
 
+    // Embedded Paragraph Image (e.g. diagrams, illustrations)
+    if (node.imageData && node.imageData.startsWith('data:image')) {
+      try {
+        childrenElements.push(
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { before: 80, after: 80 },
+            children: [
+              new ImageRun({
+                data: base64ToUint8Array(node.imageData),
+                transformation: { width: 280, height: 180 },
+              }),
+            ],
+          })
+        );
+      } catch (e) {
+        console.warn('Paragraph image embedding error:', e);
+      }
+    }
+
     // Determine text color: RED (DC2626) if integrated, else BLACK (000000)
     const textColor = node.isIntegrated ? 'DC2626' : '000000';
 
@@ -191,9 +244,10 @@ export async function exportLessonPlanToDocx(doc: LessonPlanDocument) {
       })
     );
 
-    // English translation paragraph (italic, blue #003399, on the next line)
+    // English translation paragraph (italic, blue #003399, on the next line, NO parentheses)
     if (node.contentEn) {
       const enPrefix = node.type === 'bullet' ? '  ' : '';
+      const cleanEnText = node.contentEn.replace(/^\s*[\(\[\{]\s*/, '').replace(/\s*[\)\]\}]\s*$/, '').trim();
 
       childrenElements.push(
         new Paragraph({
@@ -201,7 +255,7 @@ export async function exportLessonPlanToDocx(doc: LessonPlanDocument) {
           spacing: { before: 0, after: 60 },
           children: [
             new TextRun({
-              text: enPrefix + node.contentEn,
+              text: enPrefix + cleanEnText,
               italics: true,
               bold: false,
               size: fontSizeHalf,

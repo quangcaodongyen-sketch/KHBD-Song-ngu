@@ -19,8 +19,8 @@ export const Header: React.FC<HeaderProps> = ({
           <BookOpenCheck className="w-6 h-6" />
         </div>
         <div className="logo-text">
-          <h1>Soạn Giáo Án Năng Lực Số & AI & Song Ngữ</h1>
-          <p className="logo-subtitle">Tích hợp NLS theo PPCT & AI (QĐ 3439/QĐ-BGDĐT) | Từ File Word</p>
+          <h1>Giáo Án Song Ngữ</h1>
+          <p className="logo-subtitle">Việt - Anh từ File Word</p>
           <p className="logo-author">
             Phát triển bởi Đinh Văn Thành (0915.213717) - Web tổng hợp tool AI cho giáo viên:{' '}
             <a href="https://giao-vien-ai-toan-nang3.vercel.app/" target="_blank" rel="noopener noreferrer">
