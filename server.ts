@@ -126,14 +126,14 @@ QUY TẮC DỊCH THUẬT RẤT QUAN TRỌNG:
 `;
 
     const prompt = `
-Dịch danh sách các câu/đoạn sau từ giáo án tiếng Việt sang tiếng Anh:
+Dịch danh sách các câu/đoạn sau từ giáo án tiếng Việt sang tiếng Anh.
+MẢNG CẦN DỊCH:
 ${JSON.stringify(items, null, 2)}
 
-Hãy trả về JSON duy nhất có cấu trúc:
-{
-  "translations": ["chuỗi tiếng Anh 1", "chuỗi tiếng Anh 2", ...]
-}
-Đảm bảo số lượng phần tử trả về trùng khớp 100% với mảng đầu vào.
+QUY TẮC PHẢN HỒI:
+- Nếu mảng đầu vào dạng chuỗi ["câu 1", "câu 2"], trả về JSON: {"translations": ["dịch 1", "dịch 2"]}
+- Nếu mảng đầu vào dạng đối tượng [{"id": "...", "text": "..."}], trả về mảng JSON các đối tượng: [{"id": "...", "text": "bản dịch tiếng Anh"}]
+- Đảm bảo giữ nguyên 100% các mã ID và số lượng phần tử.
 `;
 
     const response = await generateContentWithRetry(ai, {
@@ -147,9 +147,18 @@ Hãy trả về JSON duy nhất có cấu trúc:
     });
 
     const responseText = response.text || "{}";
-    const jsonResult = JSON.parse(responseText);
+    let jsonResult;
+    try {
+      jsonResult = JSON.parse(responseText.trim().replace(/^```json\s*/, '').replace(/\s*```$/, ''));
+    } catch (e) {
+      jsonResult = {};
+    }
 
-    res.json({ translations: jsonResult.translations || [] });
+    if (Array.isArray(jsonResult)) {
+      res.json({ items: jsonResult, translations: jsonResult.map((i: any) => i.text || i) });
+    } else {
+      res.json({ translations: jsonResult.translations || [], items: jsonResult.items || [] });
+    }
   } catch (error: any) {
     console.error("Translation API Error:", error);
     res.status(500).json({

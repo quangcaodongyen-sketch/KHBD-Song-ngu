@@ -210,18 +210,18 @@ export const EditorView: React.FC<EditorViewProps> = ({
 
       setTranslationProgress({ current: 0, total: itemsToTranslate.length, pct: 0 });
 
-      const BATCH_SIZE = 15;
+      const BATCH_SIZE = 25;
       const translationsMap = new Map<string, string>();
 
       for (let i = 0; i < itemsToTranslate.length; i += BATCH_SIZE) {
         const chunk = itemsToTranslate.slice(i, i + BATCH_SIZE);
-        const chunkTexts = chunk.map((c) => c.text);
-
-        let chunkTrans: string[] = [];
+        let chunkTransMap = new Map<string, string>();
 
         if (translationMode === 'mock') {
           await new Promise((r) => setTimeout(r, 400));
-          chunkTrans = chunkTexts.map((text) => mockTranslateText(text));
+          chunk.forEach((item) => {
+            chunkTransMap.set(item.id, mockTranslateText(item.text));
+          });
         } else {
           let apiSuccess = false;
           try {
@@ -229,7 +229,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                items: chunkTexts,
+                items: chunk,
                 aiMode: currentDoc.aiMode || 'fast',
                 level: currentDoc.level,
                 subject: currentDoc.subject,
@@ -241,9 +241,20 @@ export const EditorView: React.FC<EditorViewProps> = ({
 
             if (res.ok) {
               const data = await res.json();
-              if (Array.isArray(data.translations) && data.translations.length > 0) {
-                chunkTrans = data.translations;
-                apiSuccess = true;
+              if (Array.isArray(data.items)) {
+                data.items.forEach((item: any) => {
+                  if (item.id && item.text) {
+                    chunkTransMap.set(item.id, item.text);
+                  }
+                });
+                apiSuccess = chunkTransMap.size > 0;
+              } else if (Array.isArray(data.translations)) {
+                chunk.forEach((item, idx) => {
+                  if (data.translations[idx]) {
+                    chunkTransMap.set(item.id, data.translations[idx]);
+                  }
+                });
+                apiSuccess = chunkTransMap.size > 0;
               }
             }
           } catch (e) {
@@ -252,8 +263,8 @@ export const EditorView: React.FC<EditorViewProps> = ({
 
           if (!apiSuccess && apiKey && apiKey.trim().length > 10) {
             try {
-              chunkTrans = await translateChunkWithGeminiDirect(
-                chunkTexts,
+              chunkTransMap = await translateChunkWithGeminiDirect(
+                chunk,
                 apiKey.trim(),
                 selectedModel,
                 currentDoc.subject,
@@ -261,19 +272,21 @@ export const EditorView: React.FC<EditorViewProps> = ({
                 currentDoc.grade || 'lop8',
                 translationTone
               );
-              apiSuccess = true;
+              apiSuccess = chunkTransMap.size > 0;
             } catch (directErr) {
               console.error('Direct Gemini API call failed:', directErr);
             }
           }
 
           if (!apiSuccess) {
-            chunkTrans = chunkTexts.map((t) => mockTranslateText(t));
+            chunk.forEach((item) => {
+              chunkTransMap.set(item.id, mockTranslateText(item.text));
+            });
           }
         }
 
-        chunk.forEach((item, idx) => {
-          translationsMap.set(item.id, chunkTrans[idx] || item.text);
+        chunkTransMap.forEach((val, key) => {
+          translationsMap.set(key, val);
         });
 
         // Live progressive state update - accumulator pattern
@@ -307,7 +320,6 @@ export const EditorView: React.FC<EditorViewProps> = ({
       }
 
       setCurrentStep(3);
-
     } catch (err) {
       console.error('Translation error:', err);
     } finally {
@@ -316,30 +328,41 @@ export const EditorView: React.FC<EditorViewProps> = ({
     }
   };
 
-  // Direct client-side Gemini API call helper
+  // Direct client-side Gemini API call helper matching trolysongngupro.vercel.app
   const translateChunkWithGeminiDirect = async (
-    chunk: string[],
+    chunkObjects: { id: string; text: string }[],
     userKey: string,
     model: string,
     subject: string,
     level: string,
     grade: string,
     tone: string
-  ): Promise<string[]> => {
+  ): Promise<Map<string, string>> => {
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${userKey}`;
-    const promptText = `Bạn là chuyên gia dịch thuật giáo án Việt - Anh chuẩn Bộ GD&ĐT.
-Dịch TẤT CẢ các câu/đoạn tiếng Việt trong mảng dưới đây sang tiếng Anh cho giáo án môn ${subject} cấp ${level} lớp ${grade}.
+    const resultMap = new Map<string, string>();
 
-QUY TẮC BẮT BUỘC:
-1. Trả về mảng JSON chứa chính xác ${chunk.length} phần tử bản dịch tương ứng theo đúng thứ tự 1-1 với mảng đầu vào.
-2. Dịch chính xác từng câu, không bỏ sót bất kỳ câu nào.
-3. TUYỆT ĐỐ KHÔNG LẶP LẠI TIẾNG VIỆT, KHÔNG BỌC NGOẶC ĐƠN.
-4. Giữ nguyên công thức toán, số liệu, tên viết tắt, mã hiệu Công văn.
+    const promptText = `Bạn là chuyên gia dịch thuật tài liệu giáo dục và soạn bài giảng (Lesson Plan) Việt - Anh hàng đầu cho giáo viên Việt Nam.
+Hãy dịch mảng đối tượng JSON dưới đây từ tiếng Việt sang tiếng Anh cho môn ${subject} cấp ${level} lớp ${grade}.
 
-Mảng tiếng Việt cần dịch (${chunk.length} phần tử):
-${JSON.stringify(chunk, null, 2)}
+QUY TẮC DỊCH THUẬT QUAN TRỌNG:
+1. Trả về định dạng JSON là một MẢNG các đối tượng có cấu trúc chính xác như sau: [{"id": "...", "text": "bản dịch tiếng Anh"}]. Only return valid raw JSON array.
+2. Giữ nguyên TOÀN BỘ các mã ID được cung cấp, không được sửa đổi ID.
+3. TUYỆT ĐỐ KHÔNG LẶP LẠI TIẾNG VIỆT GỐC VÀ KHÔNG BỌC NGOẶC ĐƠN (...).
+4. Giữ nguyên công thức toán, số liệu, tên riêng, ký hiệu khoa học.
+5. Với tiêu đề giáo án hoặc các mục chính:
+   - "Mục tiêu" -> "Objectives"
+   - "Nội dung" -> "Content"
+   - "Sản phẩm" -> "Products"
+   - "Tổ chức hoạt động" -> "Implementation / Procedures"
+   - "Hoạt động của giáo viên" -> "Teacher's Activities"
+   - "Hoạt động của học sinh" -> "Students' Activities"
+   - "Khởi động" -> "Warm-up"
+   - "Hình thành kiến thức mới" -> "New Knowledge Formation"
+   - "Luyện tập" -> "Practice"
+   - "Vận dụng" -> "Application"
 
-Hãy trả về duy nhất mảng JSON: {"translations": ["bản dịch 1", "bản dịch 2", ...]}`;
+MẢNG JSON CẦN DỊCH:
+${JSON.stringify(chunkObjects, null, 2)}`;
 
     const response = await fetch(endpoint, {
       method: 'POST',
@@ -355,10 +378,19 @@ Hãy trả về duy nhất mảng JSON: {"translations": ["bản dịch 1", "b�
     }
 
     const data = await response.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
-    const cleanJson = text.replace(/^```json\s*/, '').replace(/\s*```$/, '').trim();
-    const parsed = JSON.parse(cleanJson);
-    return parsed.translations || [];
+    let textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
+    textResponse = textResponse.trim().replace(/^```json\s*/, '').replace(/\s*```$/, '');
+    const parsed = JSON.parse(textResponse);
+
+    if (Array.isArray(parsed)) {
+      parsed.forEach((item: any) => {
+        if (item.id && item.text) {
+          resultMap.set(item.id, item.text);
+        }
+      });
+    }
+
+    return resultMap;
   };
 
   // Smart sentence-by-sentence phrase translator helper (Ensures EVERY sentence gets translated)
