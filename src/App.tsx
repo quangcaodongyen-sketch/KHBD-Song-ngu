@@ -56,15 +56,9 @@ export default function App() {
     showToast('Đã lưu API Key thành công!');
   };
 
-  const handleMockMode = () => {
-    setIsApiKeyModalOpen(false);
-    showToast('Đã chuyển sang chế độ Mock/Chạy thử!');
-  };
-
   const handleSaveToLibrary = (doc: LessonPlanDocument) => {
     const updated = saveToLibrary(doc);
     setLibraryDocs(updated);
-    // Also track in history
     const updatedHistory = addToHistory(doc);
     setHistoryList(updatedHistory);
     showToast('Đã lưu Giáo án vào Thư viện thành công!');
@@ -98,7 +92,7 @@ export default function App() {
     <div className="app-container min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col justify-between">
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 px-4 py-2.5 rounded-xl bg-slate-900 text-white dark:bg-blue-600 font-bold text-xs shadow-2xl border border-slate-700 animate-bounce">
+        <div className="fixed bottom-6 right-6 z-50 px-4 py-2.5 rounded-xl bg-slate-900 text-white dark:bg-teal-600 font-bold text-xs shadow-2xl border border-slate-700 animate-bounce">
           {toastMessage}
         </div>
       )}
@@ -120,7 +114,6 @@ export default function App() {
             setCurrentDoc={(newDocOrFn) => {
               setCurrentDoc((prev) => {
                 const next = typeof newDocOrFn === 'function' ? newDocOrFn(prev) : newDocOrFn;
-                // Auto track in history when edited
                 addToHistory(next);
                 return next;
               });
@@ -159,7 +152,6 @@ export default function App() {
         isOpen={isApiKeyModalOpen}
         onClose={() => setIsApiKeyModalOpen(false)}
         onSave={handleSaveApiKey}
-        onMockMode={handleMockMode}
         currentKey={apiKey}
       />
     </div>

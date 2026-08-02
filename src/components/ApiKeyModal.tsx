@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Key, Eye, EyeOff, ExternalLink, ShieldCheck, Zap, X, Check, Cpu } from 'lucide-react';
+import { Key, Eye, EyeOff, ExternalLink, ShieldCheck, X, Check, Cpu } from 'lucide-react';
 
 interface ApiKeyModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (key: string, selectedModel?: string) => void;
-  onMockMode: () => void;
   currentKey: string;
 }
 
@@ -16,7 +15,6 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
   isOpen,
   onClose,
   onSave,
-  onMockMode,
   currentKey,
 }) => {
   const [keyInput, setKeyInput] = useState('');
@@ -38,7 +36,7 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
   const handleSave = () => {
     const trimmed = keyInput.trim();
     if (!trimmed) {
-      alert('Vui lòng nhập Gemini API Key để tiếp tục sử dụng AI!');
+      alert('Vui lòng dán Gemini API Key để thực hiện dịch thuật AI!');
       return;
     }
     try {
@@ -47,11 +45,6 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
     } catch {}
     onSave(trimmed, selectedModel);
     setIsSaved(true);
-  };
-
-  const handleMock = () => {
-    onMockMode();
-    onClose();
   };
 
   const modelsList = [
@@ -156,7 +149,7 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
-                Nhập Gemini API Key
+                Nhập Gemini API Key (Bắt buộc)
               </label>
 
               <a
@@ -210,18 +203,10 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
           </div>
 
           {/* Action Buttons */}
-          <div className="flex items-center gap-3 pt-2">
-            <button
-              onClick={handleMock}
-              className="flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-2xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold transition-colors border border-slate-200 dark:border-slate-700"
-            >
-              <Zap className="w-4 h-4 text-amber-500" />
-              <span>Dùng Chế độ Chạy thử</span>
-            </button>
-
+          <div className="pt-2">
             <button
               onClick={handleSave}
-              className="flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-2xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold transition-colors shadow-lg shadow-teal-600/25"
+              className="w-full flex items-center justify-center space-x-2 px-4 py-3 rounded-2xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold transition-colors shadow-lg shadow-teal-600/25"
             >
               <Check className="w-4 h-4" />
               <span>Xác Nhận & Lưu Key</span>

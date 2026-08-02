@@ -1,52 +1,29 @@
 import React, { useState, useEffect } from 'react';
 import {
   LessonPlanDocument,
-  AlignmentMode,
-  AIMode,
   PlanNode,
   EducationLevel,
   Subject,
-  QualityCheckReport,
-  TranslationMode,
   BilingualStyle,
   TranslationStyleOption,
 } from '../types';
 import { parseUploadedFileToNodes } from '../utils/documentParser';
 import { exportLessonPlanToDocx } from '../utils/docxExporter';
 import { SUBJECTS_BY_LEVEL, GRADES_BY_LEVEL } from '../utils/subjectHelpers';
-import { CompareModal } from './CompareModal';
 import { QualityAuditModal } from './QualityAuditModal';
 import { loadSavedApiKey } from './ApiKeyModal';
 import {
-  Upload,
   Sparkles,
-  RefreshCw,
-  Columns,
   ShieldCheck,
   Download,
-  Table as TableIcon,
-  Type,
-  AlignLeft,
   Sliders,
   Key,
-  HelpCircle,
-  ExternalLink,
   Zap,
-  CheckCircle,
   RotateCcw,
   FileText,
   FileUp,
-  FolderOpen,
-  Trash2,
-  AlertTriangle,
-  Layers,
-  Plus,
   Save,
   Copy,
-  Search,
-  Check,
-  Globe,
-  Edit3,
 } from 'lucide-react';
 
 interface EditorViewProps {
@@ -67,7 +44,6 @@ export const EditorView: React.FC<EditorViewProps> = ({
   onOpenApiKeyModal,
 }) => {
   // Config state
-  const [translationMode, setTranslationMode] = useState<TranslationMode>('ai');
   const [selectedModel, setSelectedModel] = useState<string>('gemini-3-flash-preview');
   const [bilingualStyle, setBilingualStyle] = useState<BilingualStyle>('parallel');
   const [translationTone, setTranslationTone] = useState<TranslationStyleOption>('academic');
@@ -83,7 +59,6 @@ export const EditorView: React.FC<EditorViewProps> = ({
   } | null>(null);
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const [isCompareOpen, setIsCompareOpen] = useState(false);
   const [isQualityOpen, setIsQualityOpen] = useState(false);
   const [previewTab, setPreviewTab] = useState<'source' | 'bilingual'>('bilingual');
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
@@ -113,7 +88,6 @@ export const EditorView: React.FC<EditorViewProps> = ({
           }));
           if (parsed.bilingualStyle) setBilingualStyle(parsed.bilingualStyle);
           if (parsed.translationTone) setTranslationTone(parsed.translationTone);
-          if (parsed.translationMode) setTranslationMode(parsed.translationMode);
           if (parsed.selectedModel) setSelectedModel(parsed.selectedModel);
         }
       }
@@ -134,7 +108,6 @@ export const EditorView: React.FC<EditorViewProps> = ({
           grade: updatedDoc.grade,
           bilingualStyle,
           translationTone,
-          translationMode,
           selectedModel,
         })
       );
@@ -180,8 +153,14 @@ export const EditorView: React.FC<EditorViewProps> = ({
     }
   };
 
-  // Perform Translation with Retry & Live State Accumulation
+  // Perform Gemini AI Translation with Progressive Batching
   const performTranslation = async (targetNodes: PlanNode[]) => {
+    const activeApiKey = apiKey || loadSavedApiKey();
+    if (!activeApiKey || activeApiKey.trim().length < 10) {
+      onOpenApiKeyModal();
+      return;
+    }
+
     const nodesToProcess = targetNodes && targetNodes.length > 0 ? targetNodes : currentDoc.nodes;
 
     setIsTranslating(true);
@@ -194,11 +173,15 @@ export const EditorView: React.FC<EditorViewProps> = ({
         if (node.type === 'table' && node.tableRows) {
           node.tableRows.forEach((row) => {
             row.cells.forEach((cell) => {
-              itemsToTranslate.push({ id: cell.id, text: cell.contentVi || '' });
+              if (cell.contentVi && cell.contentVi.trim()) {
+                itemsToTranslate.push({ id: cell.id, text: cell.contentVi });
+              }
             });
           });
         } else {
-          itemsToTranslate.push({ id: node.id, text: node.contentVi || '' });
+          if (node.contentVi && node.contentVi.trim()) {
+            itemsToTranslate.push({ id: node.id, text: node.contentVi });
+          }
         }
       });
 
@@ -216,73 +199,53 @@ export const EditorView: React.FC<EditorViewProps> = ({
       for (let i = 0; i < itemsToTranslate.length; i += BATCH_SIZE) {
         const chunk = itemsToTranslate.slice(i, i + BATCH_SIZE);
         let chunkTransMap = new Map<string, string>();
+        let apiSuccess = false;
 
-        if (translationMode === 'mock') {
-          await new Promise((r) => setTimeout(r, 300));
-          chunk.forEach((item) => {
-            chunkTransMap.set(item.id, mockTranslateText(item.text, currentDoc.subject));
+        try {
+          const res = await fetch('/api/translate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              items: chunk,
+              aiMode: currentDoc.aiMode || 'fast',
+              level: currentDoc.level,
+              subject: currentDoc.subject,
+              grade: currentDoc.grade,
+              tone: translationTone,
+              model: selectedModel,
+              userApiKey: activeApiKey,
+            }),
           });
-        } else {
-          let apiSuccess = false;
-          try {
-            const res = await fetch('/api/translate', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                items: chunk,
-                aiMode: currentDoc.aiMode || 'fast',
-                level: currentDoc.level,
-                subject: currentDoc.subject,
-                grade: currentDoc.grade,
-                tone: translationTone,
-                model: selectedModel,
-                userApiKey: apiKey,
-              }),
-            });
 
-            if (res.ok) {
-              const data = await res.json();
-              if (Array.isArray(data.items) && data.items.length > 0) {
-                data.items.forEach((item: any) => {
-                  if (item.id && item.text) {
-                    chunkTransMap.set(item.id, item.text);
-                  }
-                });
-                apiSuccess = chunkTransMap.size > 0;
-              } else if (Array.isArray(data.translations) && data.translations.length > 0) {
-                chunk.forEach((item, idx) => {
-                  if (data.translations[idx]) {
-                    chunkTransMap.set(item.id, data.translations[idx]);
-                  }
-                });
-                apiSuccess = chunkTransMap.size > 0;
-              }
-            }
-          } catch (e) {
-            console.warn('Server API failed, attempting direct Gemini API call...', e);
-          }
-
-          if (!apiSuccess && apiKey && apiKey.trim().length > 10) {
-            try {
-              chunkTransMap = await translateChunkWithGeminiDirect(
-                chunk,
-                apiKey.trim(),
-                selectedModel,
-                currentDoc.subject,
-                currentDoc.level,
-                currentDoc.grade || 'lop8',
-                translationTone
-              );
+          if (res.ok) {
+            const data = await res.json();
+            if (Array.isArray(data.items) && data.items.length > 0) {
+              data.items.forEach((item: any) => {
+                if (item.id && item.text) {
+                  chunkTransMap.set(item.id, item.text);
+                }
+              });
               apiSuccess = chunkTransMap.size > 0;
-            } catch (directErr) {
-              console.error('Direct Gemini API call failed:', directErr);
             }
           }
+        } catch (e) {
+          console.warn('Server proxy translation failed, attempting direct Gemini API call...', e);
+        }
 
-          if (!apiSuccess) {
-            chunk.forEach((item) => {
-              chunkTransMap.set(item.id, mockTranslateText(item.text, currentDoc.subject));
-            });
+        if (!apiSuccess && activeApiKey && activeApiKey.trim().length > 10) {
+          try {
+            chunkTransMap = await translateChunkWithGeminiDirect(
+              chunk,
+              activeApiKey.trim(),
+              selectedModel,
+              currentDoc.subject,
+              currentDoc.level,
+              currentDoc.grade || 'lop8',
+              translationTone
+            );
+            apiSuccess = chunkTransMap.size > 0;
+          } catch (directErr) {
+            console.error('Direct Gemini API call failed:', directErr);
           }
         }
 
@@ -290,7 +253,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
           translationsMap.set(key, val);
         });
 
-        // Live progressive UI update
+        // Progressive UI update
         setCurrentDoc((prev) => {
           const updatedNodes = prev.nodes.map((node) => {
             if (node.type === 'table' && node.tableRows) {
@@ -350,7 +313,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
       try {
         const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${userKey}`;
         const promptText = `Bạn là chuyên gia dịch thuật tài liệu giáo dục Việt - Anh chuẩn GDPT 2018 cho môn ${subject} cấp ${level} lớp ${grade}.
-Hãy dịch mảng JSON dưới đây sang tiếng Anh thuần túy, không chứa tiếng Việt gốc ở cuối câu:
+Hãy dịch mảng JSON dưới đây theo từng Paragraph/đoạn văn sang tiếng Anh thuần túy:
 
 1. Trả về đúng mảng JSON dạng: [{"id": "...", "text": "bản dịch tiếng Anh"}].
 2. Giữ nguyên 100% các mã ID.
@@ -370,7 +333,7 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
         });
 
         if (response.status === 429 || response.status === 403) {
-          console.warn(`[Gemini API] Rate limit or Quota error on model ${model}, trying next model...`);
+          console.warn(`[Gemini API] Rate limit on model ${model}, trying next model...`);
           continue;
         }
 
@@ -467,27 +430,6 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
     alert('Đã sao chép toàn bộ nội dung giáo án song ngữ vào Clipboard!');
   };
 
-  const mockTranslateText = (text: string, subj: string): string => {
-    if (!text || !text.trim()) return '';
-    let clean = text.trim();
-
-    if (/^I\.\s*MỤC TIÊU/i.test(clean)) return 'I. OBJECTIVES:';
-    if (/^1\.\s*Về kiến thức/i.test(clean) || /^1\.\s*Kiến thức/i.test(clean)) return '1. Knowledge:';
-    if (/^2\.\s*Về năng lực/i.test(clean) || /^2\.\s*Năng lực/i.test(clean)) return '2. Competencies:';
-    if (/^3\.\s*Về phẩm chất/i.test(clean) || /^3\.\s*Phẩm chất/i.test(clean)) return '3. Qualities:';
-    if (/^II\.\s*THIẾT BỊ/i.test(clean)) return 'II. TEACHING EQUIPMENT & LEARNING MATERIALS:';
-    if (/^III\.\s*TIẾN TRÌNH/i.test(clean)) return 'III. TEACHING PROCEDURES / LESSON OUTLINE:';
-    if (/^Hoạt động 1/i.test(clean)) return 'Activity 1: Introduction & Warm-up';
-    if (/^Hoạt động 2/i.test(clean)) return 'Activity 2: Knowledge Formation';
-    if (/^Hoạt động 3/i.test(clean)) return 'Activity 3: Practice & Application';
-    if (/^a\)\s*Chuyển giao/i.test(clean)) return 'a) Task Assignment:';
-    if (/^b\)\s*Thực hiện/i.test(clean)) return 'b) Task Execution:';
-    if (/^c\)\s*Báo cáo/i.test(clean)) return 'c) Presentation & Discussion:';
-    if (/^d\)\s*Kết luận/i.test(clean)) return 'd) Conclusion & Assessment:';
-
-    return `[EN Translation - ${subj.toUpperCase()}] ${clean}`;
-  };
-
   const handleTranslateAll = () => {
     performTranslation(currentDoc.nodes);
   };
@@ -543,7 +485,7 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
 
   return (
     <div className="app-main flex flex-col lg:flex-row gap-6">
-      {/* LEFT COLUMN: SIDEBAR CONFIGURATION PANEL (giaodien.md Teal Theme) */}
+      {/* LEFT COLUMN: SIDEBAR CONFIGURATION PANEL */}
       <aside className="settings-sidebar card-glass w-full lg:w-80 shrink-0 space-y-6">
         <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center space-x-2">
           <div className="w-8 h-8 rounded-xl bg-teal-100 dark:bg-teal-950 text-teal-600 dark:text-teal-400 flex items-center justify-center font-bold">
@@ -592,93 +534,55 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
               {apiKey ? (
                 <span className="text-emerald-600 dark:text-emerald-400 font-bold">✓ Đã thiết lập Key</span>
               ) : (
-                <span className="text-amber-600 dark:text-amber-400 font-bold">⚠ Chưa cài API Key</span>
+                <span className="text-amber-600 dark:text-amber-400 font-bold">⚠ Chưa dán API Key</span>
               )}
             </div>
           </div>
 
-          {/* Mode Switcher: Mock vs Gemini AI */}
+          {/* Gemini AI Models */}
           <div className="form-group space-y-1.5">
-            <label className="text-xs font-bold text-slate-700 dark:text-slate-300">Chế độ dịch</label>
-            <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl">
-              <button
-                type="button"
-                className={`py-1.5 px-3 rounded-lg text-xs font-bold transition-all ${
-                  translationMode === 'mock'
-                    ? 'bg-white dark:bg-slate-900 text-teal-600 dark:text-teal-400 shadow-sm'
-                    : 'text-slate-600 dark:text-slate-400'
-                }`}
-                onClick={() => {
-                  setTranslationMode('mock');
-                  handleUpdateConfig({ aiMode: 'fast' });
-                }}
-              >
-                Chạy Thử (Mock)
-              </button>
-
-              <button
-                type="button"
-                className={`py-1.5 px-3 rounded-lg text-xs font-bold transition-all ${
-                  translationMode === 'ai'
-                    ? 'bg-teal-600 text-white shadow-sm'
-                    : 'text-slate-600 dark:text-slate-400'
-                }`}
-                onClick={() => {
-                  setTranslationMode('ai');
-                  if (!apiKey) onOpenApiKeyModal();
-                }}
-              >
-                Dịch AI (Gemini)
-              </button>
+            <label className="text-xs font-bold text-slate-700 dark:text-slate-300">Mô hình AI Dịch Thuật</label>
+            <div className="space-y-1.5">
+              {[
+                {
+                  id: 'gemini-3-flash-preview',
+                  title: 'gemini-3-flash-preview 🚀',
+                  desc: 'Frontier model 2026, tốt nhất cho reasoning & thuật ngữ.',
+                },
+                {
+                  id: 'gemini-2.5-pro',
+                  title: 'gemini-2.5-pro 💎',
+                  desc: 'Chất lượng cao nhất cho giáo án độ dài lớn.',
+                },
+                {
+                  id: 'gemini-2.5-flash',
+                  title: 'gemini-2.5-flash ⚡',
+                  desc: 'Cân bằng giữa tốc độ và quota tài khoản.',
+                },
+                {
+                  id: 'gemini-2.5-flash-lite',
+                  title: 'gemini-2.5-flash-lite 💨',
+                  desc: 'Siêu nhẹ, dịch nhanh và tiết kiệm token.',
+                },
+              ].map((m) => (
+                <div
+                  key={m.id}
+                  onClick={() => {
+                    setSelectedModel(m.id);
+                    localStorage.setItem(SELECTED_MODEL_STORAGE, m.id);
+                  }}
+                  className={`p-2.5 rounded-xl border text-xs cursor-pointer transition-all ${
+                    selectedModel === m.id
+                      ? 'border-teal-600 bg-teal-50/60 dark:bg-teal-950/40 text-teal-950 dark:text-teal-100 font-bold ring-2 ring-teal-500/20'
+                      : 'border-slate-200 dark:border-slate-800 hover:border-slate-300'
+                  }`}
+                >
+                  <div className="font-bold">{m.title}</div>
+                  <div className="text-[10px] text-slate-500 dark:text-slate-400 font-normal">{m.desc}</div>
+                </div>
+              ))}
             </div>
           </div>
-
-          {/* Gemini AI Models */}
-          {translationMode === 'ai' && (
-            <div className="form-group space-y-1.5">
-              <label className="text-xs font-bold text-slate-700 dark:text-slate-300">Mô hình AI</label>
-              <div className="space-y-1.5">
-                {[
-                  {
-                    id: 'gemini-3-flash-preview',
-                    title: 'gemini-3-flash-preview 🚀',
-                    desc: 'Frontier model 2026, tốt nhất cho reasoning & thuật ngữ.',
-                  },
-                  {
-                    id: 'gemini-2.5-pro',
-                    title: 'gemini-2.5-pro 💎',
-                    desc: 'Chất lượng cao nhất cho giáo án độ dài lớn.',
-                  },
-                  {
-                    id: 'gemini-2.5-flash',
-                    title: 'gemini-2.5-flash ⚡',
-                    desc: 'Cân bằng giữa tốc độ và quota tài khoản.',
-                  },
-                  {
-                    id: 'gemini-2.5-flash-lite',
-                    title: 'gemini-2.5-flash-lite 💨',
-                    desc: 'Siêu nhẹ, dịch nhanh và tiết kiệm token.',
-                  },
-                ].map((m) => (
-                  <div
-                    key={m.id}
-                    onClick={() => {
-                      setSelectedModel(m.id);
-                      localStorage.setItem(SELECTED_MODEL_STORAGE, m.id);
-                    }}
-                    className={`p-2.5 rounded-xl border text-xs cursor-pointer transition-all ${
-                      selectedModel === m.id
-                        ? 'border-teal-600 bg-teal-50/60 dark:bg-teal-950/40 text-teal-950 dark:text-teal-100 font-bold ring-2 ring-teal-500/20'
-                        : 'border-slate-200 dark:border-slate-800 hover:border-slate-300'
-                    }`}
-                  >
-                    <div className="font-bold">{m.title}</div>
-                    <div className="text-[10px] text-slate-500 dark:text-slate-400 font-normal">{m.desc}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
 
           {/* Subject Selection */}
           <div className="form-group space-y-1.5">
@@ -795,7 +699,7 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
               Kéo thả hoặc nhấp để tải Kế hoạch bài dạy (.docx hoặc .pdf)
             </h3>
             <p className="text-xs text-slate-400 mt-1">
-              Bảo lưu 100% định dạng in đậm, in nghiêng, căn lề, bảng biểu & công thức toán gốc
+              Bảo lưu 100% định dạng gốc (căn đều 2 bên, bảng biểu, in đậm, in nghiêng & công thức toán)
             </p>
           </div>
 
@@ -805,7 +709,7 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
                 <FileText className="w-6 h-6 text-teal-600" />
                 <div>
                   <h4 className="text-xs font-bold text-slate-900 dark:text-white">{currentDoc.title}</h4>
-                  <p className="text-[11px] text-slate-400">{currentDoc.nodes.length} phần tử giáo án • Bảo lưu định dạng gốc</p>
+                  <p className="text-[11px] text-slate-400">{currentDoc.nodes.length} phần tử giáo án • Bảo lưu định dạng gốc 100%</p>
                 </div>
               </div>
 
@@ -832,7 +736,7 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
                 <span>
                   {isIntegrating
                     ? 'AI đang phân tích và tích hợp Năng lực số & AI (QĐ 3439/QĐ-BGDĐT)...'
-                    : `Đang dịch thuật giáo án song ngữ (${translationProgress?.current || 0}/${translationProgress?.total || 0} phần tử)...`}
+                    : `Đang dịch thuật giáo án song ngữ theo từng Paragraph (${translationProgress?.current || 0}/${translationProgress?.total || 0} phần tử)...`}
                 </span>
               </span>
               <span>{translationProgress?.pct || 0}%</span>
@@ -927,10 +831,11 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
                     node.type === 'title' ||
                     /^(I|II|III|IV|V|VI|VII|VIII|IX|X|\d+|[A-Z])[\.\:]\s*/i.test((node.contentVi || '').trim());
 
-                  let alignClass = 'text-left';
-                  if (node.align === 'center') alignClass = 'text-center';
-                  if (node.align === 'right') alignClass = 'text-right';
-                  if (node.align === 'justify') alignClass = 'text-justify';
+                  // Default to text-justify for all standard paragraphs per user request
+                  let alignClass = 'text-justify';
+                  if (node.align === 'center' || node.type === 'title') alignClass = 'text-center';
+                  else if (node.align === 'right') alignClass = 'text-right';
+                  else if (node.align === 'left') alignClass = 'text-left';
 
                   if (node.type === 'table' && node.tableRows) {
                     return (
@@ -948,9 +853,9 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
                                 {row.cells.map((cell) => (
                                   <td
                                     key={cell.id}
-                                    className={`border border-slate-300 dark:border-slate-700 p-3 align-top ${
+                                    className={`border border-slate-300 dark:border-slate-700 p-3 align-top text-justify ${
                                       cell.isHeader
-                                        ? 'bg-slate-100 dark:bg-slate-800 font-bold'
+                                        ? 'bg-slate-100 dark:bg-slate-800 font-bold text-center'
                                         : ''
                                     }`}
                                   >
@@ -961,7 +866,7 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
                                         className="max-w-[220px] max-h-[160px] my-1 rounded border border-slate-200 mx-auto block"
                                       />
                                     )}
-                                    <div className="text-slate-900 dark:text-slate-100">
+                                    <div className="text-slate-900 dark:text-slate-100 text-justify">
                                       {cell.contentVi}
                                     </div>
 
@@ -979,7 +884,7 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
                                             e.target.value
                                           )
                                         }
-                                        className="w-full bg-transparent italic text-[#003399] dark:text-sky-400 font-normal focus:outline-none focus:ring-1 focus:ring-teal-400 rounded px-1 mt-1 text-[13pt]"
+                                        className="w-full bg-transparent italic text-[#003399] dark:text-sky-400 font-normal focus:outline-none focus:ring-1 focus:ring-teal-400 rounded px-1 mt-1 text-[13pt] text-justify"
                                       />
                                     )}
                                   </td>
@@ -1012,7 +917,7 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
                           node.isIntegrated ? 'text-red-600 dark:text-red-400 font-bold' : 'text-slate-900 dark:text-slate-100'
                         } ${isHeader || node.isBold ? 'font-bold' : 'font-normal'} ${
                           node.isItalic ? 'italic' : ''
-                        }`}
+                        } text-justify`}
                       >
                         {node.type === 'bullet' ? '• ' : ''}{node.contentVi}
                       </div>
@@ -1025,7 +930,7 @@ ${JSON.stringify(chunkObjects, null, 2)}`;
                           onChange={(e) =>
                             handleUpdateNodeContent(node.id, 'contentEn', e.target.value)
                           }
-                          className="w-full bg-transparent italic text-[#003399] dark:text-sky-400 font-normal focus:outline-none focus:ring-1 focus:ring-teal-400 rounded px-1 mt-1 text-[13pt] resize-none"
+                          className="w-full bg-transparent italic text-[#003399] dark:text-sky-400 font-normal focus:outline-none focus:ring-1 focus:ring-teal-400 rounded px-1 mt-1 text-[13pt] resize-none text-justify"
                         />
                       )}
                     </div>
