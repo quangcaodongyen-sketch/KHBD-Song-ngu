@@ -131,6 +131,9 @@ export async function exportLessonPlanToDocx(doc: LessonPlanDocument) {
       node.type === 'title' ||
       (node.align === 'center');
 
+    // Determine text color: RED (DC2626) if integrated, else BLACK (000000)
+    const textColor = node.isIntegrated ? 'DC2626' : '000000';
+
     // Build Vietnamese text runs (may have inline bold segments)
     const viPrefix = node.type === 'bullet' ? '• ' : '';
     const viTextRuns: TextRun[] = [];
@@ -148,7 +151,7 @@ export async function exportLessonPlanToDocx(doc: LessonPlanDocument) {
           italics: node.isItalic || false,
           size: fontSizeHalf,
           font: 'Times New Roman',
-          color: '000000',
+          color: textColor,
         })
       );
       if (rest) {
@@ -159,7 +162,7 @@ export async function exportLessonPlanToDocx(doc: LessonPlanDocument) {
             italics: node.isItalic || false,
             size: fontSizeHalf,
             font: 'Times New Roman',
-            color: '000000',
+            color: textColor,
           })
         );
       }
@@ -171,7 +174,7 @@ export async function exportLessonPlanToDocx(doc: LessonPlanDocument) {
           italics: node.isItalic || false,
           size: fontSizeHalf,
           font: 'Times New Roman',
-          color: '000000',
+          color: textColor,
         })
       );
     }

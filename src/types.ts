@@ -78,6 +78,13 @@ export interface TableRowNode {
   cells: TableCellNode[];
 }
 
+export interface IntegrationOptions {
+  nls: boolean; // Tích hợp Năng lực số (NLS)
+  ai3439: boolean; // Tích hợp Năng lực AI theo QĐ 3439/QĐ-BGDĐT
+  stem: boolean; // Tích hợp Giáo dục STEM
+  env: boolean; // Tích hợp Bảo vệ môi trường & Kỹ năng sống
+}
+
 export interface PlanNode {
   id: string;
   type: NodeType;
@@ -86,6 +93,8 @@ export interface PlanNode {
   fontSize?: number; // e.g. 13 or 14
   isBold?: boolean;
   isItalic?: boolean;
+  isIntegrated?: boolean; // Tích hợp thêm NLS/AI QĐ 3439 (hiển thị chữ màu đỏ)
+  integrationType?: 'nls' | 'ai_3439' | 'stem' | 'env';
   align?: 'left' | 'center' | 'right' | 'justify';
   tableRows?: TableRowNode[];
   sectionName?: string; // e.g. "Hoạt động 1", "Mục tiêu"
@@ -107,6 +116,7 @@ export interface LessonPlanDocument {
   isFavorite?: boolean;
   notes?: string;
   originalFileName?: string;
+  integrations?: IntegrationOptions;
 }
 
 export interface QualityCheckIssue {
