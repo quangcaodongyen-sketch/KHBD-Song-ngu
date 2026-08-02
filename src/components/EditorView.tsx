@@ -308,7 +308,27 @@ export const EditorView: React.FC<EditorViewProps> = ({
     if (/c\.\s*Sản phẩm/i.test(clean)) return 'c. Expected Products:';
     if (/d\.\s*Tổ chức thực hiện/i.test(clean)) return 'd. Implementation / Execution:';
 
-    return `Students will study and master the concepts related to: ${clean.slice(0, 60)}...`;
+    // Pedagogical dictionary for mock mode (pure English only, no Vietnamese repetition)
+    const mockDict: { [key: string]: string } = {
+      'ôn tập': 'Review and consolidation of knowledge',
+      'củng cố': 'Consolidate knowledge and systemize core concepts',
+      'tự chủ': 'Self-reliance and self-learning skills',
+      'giao tiếp': 'Communication and collaboration competencies',
+      'giải quyết': 'Problem solving and creativity skills',
+      'nhân ái': 'Compassion and willingness to help peers',
+      'chăm chỉ': 'Diligence and active participation in learning tasks',
+      'trung thực': 'Honesty and objective self-assessment',
+      'trách nhiệm': 'Responsibility in completing learning activities',
+    };
+
+    const lower = clean.toLowerCase();
+    for (const [key, val] of Object.entries(mockDict)) {
+      if (lower.includes(key)) {
+        return val;
+      }
+    }
+
+    return 'Students perform the assigned learning tasks, discuss in groups, and record their findings in the worksheet.';
   };
 
   const handleTranslateAll = () => performTranslation(currentDoc.nodes);

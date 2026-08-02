@@ -100,8 +100,8 @@ Nhiệm vụ của bạn là dịch các đoạn văn bản/bảng biểu/công 
 PHONG CÁCH: ${toneInstruction}
 CẤP HỌC: ${level || "Tất cả các cấp"} | MÔN HỌC: ${subject || "Môn học chung"}.
 
-QUY TẮC DỊCH THUẬT QUAN TRỌNG:
-1. Dịch chính xác, tự nhiên theo đúng ngữ cảnh sư phạm Việt Nam, không dịch máy từng từ.
+QUY TẮC DỊCH THUẬT RẤT QUAN TRỌNG:
+1. TUYỆT ĐỐ KHÔNG LẶP LẠI VĂN BẢN TIẾNG VIỆT TRONG BẢN DỊCH TIẾNG ANH. Bản dịch tiếng Anh phải là 100% tiếng Anh thuần túy, không chèn bất kỳ từ tiếng Việt gốc nào ở cuối câu.
 2. Với thuật ngữ giáo án chuẩn Công văn 5512:
    - Hoạt động: Activity
    - Mục tiêu: Objectives
@@ -119,9 +119,9 @@ QUY TẮC DỊCH THUẬT QUAN TRỌNG:
    - Phẩm chất: Qualities / Character Attributes
    - Năng lực chung: General Competencies
    - Năng lực đặc thù: Specific Competencies
-3. KHÔNG TỰ Ý ĐẶT NỘI DUNG DỊCH TRONG NGOẶC ĐƠN (...). Chỉ dịch thẳng nội dung chữ sang tiếng Anh.
-4. Giữ nguyên công thức toán, số liệu, tên riêng, mã hiệu Công văn/Thông tư, mã giữ chỗ hình ảnh {{img_...}}.
-5. Đối với đề mục (ví dụ: 'I. MỤC TIÊU', '1. Về kiến thức'): Dịch thẳng sang tiếng Anh tương ứng ('I. OBJECTIVES', '1. Knowledge'), KHÔNG bọc ngoặc đơn.
+3. KHÔNG TỰ Ý ĐẶT NỘI DUNG DỊCH TRONG NGOẶC ĐƠN (...). Chỉ dịch thẳng nội dung sang tiếng Anh.
+4. GIỮ NGUYÊN 100% các công thức toán học (MathType/Equation), công thức hóa học, số liệu, hình vẽ, hình ảnh, ký hiệu khoa học hoặc mã giữ chỗ {{img_...}}. Không chỉnh sửa hay làm méo mó các ký hiệu này.
+5. Đối với đề mục (ví dụ: 'I. MỤC TIÊU', '1. Về kiến thức'): Dịch thẳng sang tiếng Anh tương ứng ('I. OBJECTIVES', '1. Knowledge'), KHÔNG bọc ngoặc đơn và KHÔNG lặp lại tiếng Việt.
 6. Trả về đúng định dạng JSON chứa mảng các chuỗi dịch tương ứng theo đúng thứ tự mảng đầu vào.
 `;
 
