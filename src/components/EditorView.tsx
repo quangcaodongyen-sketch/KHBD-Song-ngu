@@ -162,6 +162,11 @@ export const EditorView: React.FC<EditorViewProps> = ({
       setCurrentDoc(newDoc);
       onSaveToLibrary(newDoc);
       setCurrentStep(2);
+
+      // Auto-trigger translation immediately after upload
+      setTimeout(() => {
+        performTranslation(nodes);
+      }, 200);
     } catch (error) {
       console.error('File parse error:', error);
       alert('Không thể đọc tệp Word. Vui lòng kiểm tra lại định dạng tệp .docx.');
@@ -172,6 +177,8 @@ export const EditorView: React.FC<EditorViewProps> = ({
 
   // Perform Translation
   const performTranslation = async (targetNodes: PlanNode[]) => {
+    const nodesToProcess = targetNodes && targetNodes.length > 0 ? targetNodes : currentDoc.nodes;
+
     if (translationMode === 'ai' && !apiKey) {
       onOpenApiKeyModal();
       return;
@@ -182,20 +189,16 @@ export const EditorView: React.FC<EditorViewProps> = ({
     setTranslationProgress({ current: 0, total: 1, pct: 0 });
 
     try {
-      const nodesToProcess = translationScope === 'partial' && selectedNodeId
-        ? currentDoc.nodes.filter((n) => n.id === selectedNodeId)
-        : targetNodes;
-
       const itemsToTranslate: { id: string; text: string }[] = [];
       nodesToProcess.forEach((node) => {
         if (node.type === 'table' && node.tableRows) {
           node.tableRows.forEach((row) => {
             row.cells.forEach((cell) => {
-              itemsToTranslate.push({ id: cell.id, text: cell.contentVi });
+              itemsToTranslate.push({ id: cell.id, text: cell.contentVi || '' });
             });
           });
         } else {
-          itemsToTranslate.push({ id: node.id, text: node.contentVi });
+          itemsToTranslate.push({ id: node.id, text: node.contentVi || '' });
         }
       });
 
@@ -217,7 +220,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
         let chunkTrans: string[] = [];
 
         if (translationMode === 'mock') {
-          await new Promise((r) => setTimeout(r, 600));
+          await new Promise((r) => setTimeout(r, 400));
           chunkTrans = chunkTexts.map((text) => mockTranslateText(text));
         } else {
           let apiSuccess = false;
@@ -273,31 +276,28 @@ export const EditorView: React.FC<EditorViewProps> = ({
           translationsMap.set(item.id, chunkTrans[idx] || item.text);
         });
 
-        // Live progressive state update
-        const liveNodes = currentDoc.nodes.map((node) => {
-          if (node.type === 'table' && node.tableRows) {
-            const updatedRows = node.tableRows.map((row) => {
-              const updatedCells = row.cells.map((cell) => {
-                const trans = translationsMap.get(cell.id);
-                return trans !== undefined ? { ...cell, contentEn: trans } : cell;
+        // Live progressive state update - accumulator pattern
+        setCurrentDoc((prev) => {
+          const updatedNodes = prev.nodes.map((node) => {
+            if (node.type === 'table' && node.tableRows) {
+              const updatedRows = node.tableRows.map((row) => {
+                const updatedCells = row.cells.map((cell) => {
+                  const trans = translationsMap.get(cell.id);
+                  return trans !== undefined ? { ...cell, contentEn: trans } : cell;
+                });
+                return { ...row, cells: updatedCells };
               });
-              return { ...row, cells: updatedCells };
-            });
-            return { ...node, tableRows: updatedRows };
-          } else {
-            const trans = translationsMap.get(node.id);
-            return trans !== undefined ? { ...node, contentEn: trans } : node;
-          }
+              return { ...node, tableRows: updatedRows };
+            } else {
+              const trans = translationsMap.get(node.id);
+              return trans !== undefined ? { ...node, contentEn: trans } : node;
+            }
+          });
+          return { ...prev, nodes: updatedNodes, updatedAt: new Date().toISOString() };
         });
 
         const currentDone = Math.min(itemsToTranslate.length, i + BATCH_SIZE);
         const pct = Math.round((currentDone / itemsToTranslate.length) * 100);
-
-        setCurrentDoc((prev) => ({
-          ...prev,
-          nodes: liveNodes,
-          updatedAt: new Date().toISOString(),
-        }));
 
         setTranslationProgress({
           current: currentDone,
@@ -305,6 +305,8 @@ export const EditorView: React.FC<EditorViewProps> = ({
           pct,
         });
       }
+
+      setCurrentStep(3);
 
     } catch (err) {
       console.error('Translation error:', err);
