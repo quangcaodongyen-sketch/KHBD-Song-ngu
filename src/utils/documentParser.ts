@@ -10,7 +10,7 @@ export async function parseUploadedFileToNodes(file: File): Promise<PlanNode[]> 
 
   try {
     const arrayBuffer = await file.arrayBuffer();
-    // Configure mammoth to convert docx images to inline base64 images and retain formatting tags
+    // Configure mammoth to convert docx images (including MathType WMF/EMF formulas) to inline base64 PNG images
     const result = await mammoth.convertToHtml({
       arrayBuffer,
       convertImage: mammoth.images.imgElement((image) => {
@@ -62,10 +62,10 @@ function parseHtmlToNodes(html: string): PlanNode[] {
   for (const el of elements) {
     const tagName = el.tagName.toLowerCase();
     const textContent = el.textContent?.trim() || '';
-    const imgEl = el.querySelector('img');
-    const imageData = imgEl ? imgEl.getAttribute('src') || undefined : undefined;
+    const imgElements = Array.from(el.querySelectorAll('img'));
+    const primaryImgData = imgElements.length > 0 ? imgElements[0].getAttribute('src') || undefined : undefined;
 
-    if (!textContent && tagName !== 'table' && !imageData) continue;
+    if (!textContent && tagName !== 'table' && imgElements.length === 0) continue;
 
     const fmt = detectFormatting(el);
 
@@ -75,7 +75,7 @@ function parseHtmlToNodes(html: string): PlanNode[] {
         type: tagName === 'h1' ? 'heading1' : 'heading2',
         contentVi: textContent,
         contentEn: '',
-        imageData,
+        imageData: primaryImgData,
         fontSize: 13,
         isBold: fmt.isBold,
         isItalic: fmt.isItalic,
@@ -87,7 +87,7 @@ function parseHtmlToNodes(html: string): PlanNode[] {
         type: 'heading3',
         contentVi: textContent,
         contentEn: '',
-        imageData,
+        imageData: primaryImgData,
         fontSize: 13,
         isBold: fmt.isBold,
         isItalic: fmt.isItalic,
@@ -111,6 +111,7 @@ function parseHtmlToNodes(html: string): PlanNode[] {
         });
       }
     } else if (tagName === 'table') {
+      // 100% PRESERVATION OF TABLE GRID STRUCTURE (ZERO ROW/CELL MERGING OR SPLITTING)
       const rows = Array.from(el.querySelectorAll('tr'));
       const tableRows: TableRowNode[] = [];
       let rowIdx = 1;
@@ -180,17 +181,38 @@ function parseHtmlToNodes(html: string): PlanNode[] {
         tableRows,
       });
     } else {
+      // Paragraphs & Images
       nodes.push({
         id: `pnode-${nodeCount++}`,
         type: 'paragraph',
         contentVi: textContent,
         contentEn: '',
-        imageData,
+        imageData: primaryImgData,
         fontSize: 13,
         isBold: fmt.isBold,
         isItalic: fmt.isItalic,
         align: fmt.align || 'justify',
       });
+
+      // Handle additional images in paragraph if multiple MathType formula images exist
+      if (imgElements.length > 1) {
+        for (let i = 1; i < imgElements.length; i++) {
+          const extraImgSrc = imgElements[i].getAttribute('src');
+          if (extraImgSrc) {
+            nodes.push({
+              id: `pnode-${nodeCount++}`,
+              type: 'paragraph',
+              contentVi: '',
+              contentEn: '',
+              imageData: extraImgSrc,
+              fontSize: 13,
+              isBold: false,
+              isItalic: false,
+              align: 'center',
+            });
+          }
+        }
+      }
     }
   }
 
