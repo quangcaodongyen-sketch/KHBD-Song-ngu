@@ -111,7 +111,6 @@ function parseHtmlToNodes(html: string): PlanNode[] {
         });
       }
     } else if (tagName === 'table') {
-      // 100% PRESERVATION OF TABLE GRID STRUCTURE (ZERO ROW/CELL MERGING OR SPLITTING)
       const rows = Array.from(el.querySelectorAll('tr'));
       const tableRows: TableRowNode[] = [];
       let rowIdx = 1;
@@ -181,7 +180,6 @@ function parseHtmlToNodes(html: string): PlanNode[] {
         tableRows,
       });
     } else {
-      // Paragraphs & Images
       nodes.push({
         id: `pnode-${nodeCount++}`,
         type: 'paragraph',
@@ -194,7 +192,6 @@ function parseHtmlToNodes(html: string): PlanNode[] {
         align: fmt.align || 'justify',
       });
 
-      // Handle additional images in paragraph if multiple MathType formula images exist
       if (imgElements.length > 1) {
         for (let i = 1; i < imgElements.length; i++) {
           const extraImgSrc = imgElements[i].getAttribute('src');
