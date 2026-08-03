@@ -29,9 +29,9 @@ function getGeminiClient(customKey?: string) {
 
 // Fallback Model Chain Execution with Automatic Retry
 async function generateContentWithRetry(ai: GoogleGenAI, params: any, retries = 2, delayMs = 1000): Promise<any> {
-  const primaryModel = params.model || "gemini-3-flash-preview";
+  const primaryModel = params.model || "gemini-2.5-flash";
   const modelsToTry = Array.from(
-    new Set([primaryModel, "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"])
+    new Set([primaryModel, "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-flash"])
   );
 
   let lastError: any = null;
@@ -138,7 +138,7 @@ Trả về duy nhất mảng JSON các đối tượng có cấu trúc:
 `;
 
     const response = await generateContentWithRetry(ai, {
-      model: model || "gemini-3-flash-preview",
+      model: model || "gemini-2.5-flash",
       contents: prompt,
       config: {
         systemInstruction,
@@ -205,7 +205,7 @@ ${JSON.stringify(nodes.slice(0, 20), null, 2)}
 `;
 
     const response = await generateContentWithRetry(ai, {
-      model: "gemini-3-flash-preview",
+      model: "gemini-2.5-flash",
       contents: prompt,
       config: {
         systemInstruction,
@@ -261,7 +261,7 @@ Trả về JSON có cấu trúc:
 `;
 
     const response = await generateContentWithRetry(ai, {
-      model: "gemini-3-flash-preview",
+      model: "gemini-2.5-flash",
       contents: prompt,
       config: {
         systemInstruction,

@@ -40,50 +40,251 @@ function fallbackTranslateVietnameseText(text: string): string {
 
   let translated = text;
 
-  const dictionary: [RegExp, string][] = [
-    [/^KẾ HOẠCH BÀI DẠY/i, 'LESSON PLAN'],
-    [/^GIÁO ÁN/i, 'LESSON PLAN'],
-    [/^BÀI HỌC/i, 'LESSON'],
-    [/^MỤC TIÊU/i, 'I. OBJECTIVES'],
-    [/^THIẾT BỊ DẠY HỌC VÀ HỌC LIỆU/i, 'II. TEACHING EQUIPMENT AND LEARNING MATERIALS'],
-    [/^TIẾN TRÌNH DẠY HỌC/i, 'III. TEACHING PROCEDURES'],
-    [/^HOẠT ĐỘNG KHỞI ĐỘNG/i, '1. Warm-up Activity'],
-    [/^HOẠT ĐỘNG HÌNH THÀNH KIẾN THỨC MỚI/i, '2. New Knowledge Formation Activity'],
-    [/^HOẠT ĐỘNG LUYỆN TẬP/i, '3. Practice Activity'],
-    [/^HOẠT ĐỘNG VẬN DỤNG/i, '4. Application Activity'],
-    [/^Hoạt động (\d+)/gi, 'Activity $1'],
-    [/^Bước 1: Chuyển giao nhiệm vụ/gi, 'Step 1: Task Assignment'],
-    [/^Bước 2: Thực hiện nhiệm vụ/gi, 'Step 2: Task Execution'],
-    [/^Bước 3: Báo cáo, thảo luận/gi, 'Step 3: Presentation and Discussion'],
-    [/^Bước 4: Kết luận, nhận định/gi, 'Step 4: Conclusion and Assessment'],
-    [/^a\) Mục tiêu/gi, 'a) Objectives'],
-    [/^b\) Nội dung/gi, 'b) Content'],
-    [/^c\) Sản phẩm/gi, 'c) Expected Products'],
-    [/^d\) Tổ chức thực hiện/gi, 'd) Implementation'],
-    [/^1\. Kiến thức/gi, '1. Knowledge'],
-    [/^2\. Năng lực/gi, '2. Competencies'],
-    [/^3\. Phẩm chất/gi, '3. Character Qualities'],
-    [/^Năng lực chung/gi, 'General Competencies'],
-    [/^Năng lực đặc thù/gi, 'Specific Competencies'],
-    [/^Học sinh/gi, 'Students'],
-    [/^Giáo viên/gi, 'Teacher'],
-    [/^Yêu cầu cần đạt/gi, 'Requirements to be achieved'],
-    [/^Phương pháp dạy học/gi, 'Teaching methods'],
-    [/^Hình thức tổ chức/gi, 'Organization form'],
+  // === PHASE 1: Full-line exact match for common headings/structure ===
+  const fullLineDict: [RegExp, string][] = [
+    [/^KẾ HOẠCH BÀI DẠY$/i, 'LESSON PLAN'],
+    [/^GIÁO ÁN$/i, 'LESSON PLAN'],
+    [/^BÀI HỌC$/i, 'LESSON'],
+    [/^I\s*\.?\s*MỤC TIÊU/i, 'I. OBJECTIVES'],
+    [/^MỤC TIÊU/i, 'OBJECTIVES'],
+    [/^II\s*\.?\s*THIẾT BỊ DẠY HỌC VÀ HỌC LIỆU/i, 'II. TEACHING EQUIPMENT AND LEARNING MATERIALS'],
+    [/^THIẾT BỊ DẠY HỌC VÀ HỌC LIỆU/i, 'TEACHING EQUIPMENT AND LEARNING MATERIALS'],
+    [/^III\s*\.?\s*TIẾN TRÌNH DẠY HỌC/i, 'III. TEACHING PROCEDURES'],
+    [/^TIẾN TRÌNH DẠY HỌC/i, 'TEACHING PROCEDURES'],
+    [/^HOẠT ĐỘNG KHỞI ĐỘNG/i, 'WARM-UP ACTIVITY'],
+    [/^HOẠT ĐỘNG MỞ ĐẦU/i, 'INTRODUCTION ACTIVITY'],
+    [/^HOẠT ĐỘNG HÌNH THÀNH KIẾN THỨC MỚI/i, 'NEW KNOWLEDGE FORMATION ACTIVITY'],
+    [/^HOẠT ĐỘNG HÌNH THÀNH KIẾN THỨC/i, 'NEW KNOWLEDGE FORMATION ACTIVITY'],
+    [/^HOẠT ĐỘNG LUYỆN TẬP/i, 'PRACTICE ACTIVITY'],
+    [/^HOẠT ĐỘNG VẬN DỤNG/i, 'APPLICATION ACTIVITY'],
+    [/^HOẠT ĐỘNG TÌM TÒI MỞ RỘNG/i, 'EXPLORATION AND EXTENSION ACTIVITY'],
+    [/^Hoạt động (\d+)/i, 'Activity $1'],
+    [/^Bước 1\s*[:\.]?\s*Chuyển giao nhiệm vụ/i, 'Step 1: Task Assignment'],
+    [/^Bước 2\s*[:\.]?\s*Thực hiện nhiệm vụ/i, 'Step 2: Task Execution'],
+    [/^Bước 3\s*[:\.]?\s*Báo cáo,?\s*thảo luận/i, 'Step 3: Presentation and Discussion'],
+    [/^Bước 4\s*[:\.]?\s*Kết luận,?\s*nhận định/i, 'Step 4: Conclusion and Assessment'],
+    [/^a\)\s*Mục tiêu/i, 'a) Objectives'],
+    [/^b\)\s*Nội dung/i, 'b) Content'],
+    [/^c\)\s*Sản phẩm/i, 'c) Expected Products'],
+    [/^d\)\s*Tổ chức thực hiện/i, 'd) Implementation'],
+    [/^1\s*\.?\s*Kiến thức/i, '1. Knowledge'],
+    [/^2\s*\.?\s*Năng lực/i, '2. Competencies'],
+    [/^3\s*\.?\s*Phẩm chất/i, '3. Character Qualities'],
+    [/^Năng lực chung/i, 'General Competencies'],
+    [/^Năng lực đặc thù/i, 'Specific Competencies'],
+    [/^Yêu cầu cần đạt/i, 'Requirements to be achieved'],
+    [/^Phương pháp dạy học/i, 'Teaching methods'],
+    [/^Hình thức tổ chức/i, 'Organization form'],
+    [/^Chuẩn bị của giáo viên/i, 'Teacher preparation'],
+    [/^Chuẩn bị của học sinh/i, 'Student preparation'],
+    [/^Rút kinh nghiệm/i, 'Lesson reflection'],
+    [/^Hướng dẫn về nhà/i, 'Homework guidance'],
+    [/^Củng cố/i, 'Consolidation'],
+    [/^Dặn dò/i, 'Homework assignment'],
+    [/^Bài tập về nhà/i, 'Homework'],
+    [/^Ổn định tổ chức/i, 'Class organization'],
+    [/^Kiểm tra bài cũ/i, 'Previous lesson review'],
+    [/^Bài mới/i, 'New lesson'],
+    [/^Luyện tập/i, 'Practice'],
+    [/^Vận dụng/i, 'Application'],
+    [/^Mở đầu/i, 'Introduction'],
+    [/^Khởi động/i, 'Warm-up'],
   ];
 
-  for (const [regex, replacement] of dictionary) {
+  for (const [regex, replacement] of fullLineDict) {
+    if (regex.test(translated)) {
+      translated = translated.replace(regex, replacement);
+      return translated;
+    }
+  }
+
+  // === PHASE 2: Word/phrase-level replacement for complex sentences ===
+  const phraseDict: [RegExp, string][] = [
+    // Roles
+    [/Giáo viên/gi, 'Teacher'],
+    [/Học sinh/gi, 'Students'],
+    [/GV/g, 'Teacher'],
+    [/HS/g, 'Students'],
+    // Actions
+    [/chuyển giao nhiệm vụ/gi, 'assigns tasks'],
+    [/thực hiện nhiệm vụ/gi, 'execute the task'],
+    [/báo cáo kết quả/gi, 'report results'],
+    [/báo cáo, thảo luận/gi, 'present and discuss'],
+    [/báo cáo/gi, 'report'],
+    [/thảo luận nhóm/gi, 'group discussion'],
+    [/thảo luận/gi, 'discuss'],
+    [/kết luận, nhận định/gi, 'conclude and assess'],
+    [/kết luận/gi, 'conclusion'],
+    [/nhận định/gi, 'assessment'],
+    [/nhận xét/gi, 'comment'],
+    [/đánh giá/gi, 'evaluate'],
+    [/quan sát/gi, 'observe'],
+    [/lắng nghe/gi, 'listen'],
+    [/trả lời/gi, 'answer'],
+    [/hỏi đáp/gi, 'Q&A'],
+    [/đặt câu hỏi/gi, 'ask questions'],
+    [/nêu vấn đề/gi, 'raise the problem'],
+    [/giải quyết vấn đề/gi, 'solve the problem'],
+    [/phát hiện/gi, 'discover'],
+    [/vận dụng/gi, 'apply'],
+    [/luyện tập/gi, 'practice'],
+    [/hoàn thành/gi, 'complete'],
+    [/trình bày/gi, 'present'],
+    [/giải thích/gi, 'explain'],
+    [/chứng minh/gi, 'prove'],
+    [/tính toán/gi, 'calculate'],
+    [/so sánh/gi, 'compare'],
+    [/phân tích/gi, 'analyze'],
+    [/tổng hợp/gi, 'synthesize'],
+    [/sáng tạo/gi, 'create'],
+    [/hợp tác/gi, 'cooperate'],
+    [/tự học/gi, 'self-study'],
+    [/tự chủ/gi, 'autonomy'],
+    [/giao tiếp/gi, 'communicate'],
+    [/làm việc nhóm/gi, 'teamwork'],
+    [/làm việc/gi, 'work'],
+    [/thực hành/gi, 'practice'],
+    [/thí nghiệm/gi, 'experiment'],
+    [/nghiên cứu/gi, 'research'],
+    [/tìm hiểu/gi, 'explore'],
+    [/khám phá/gi, 'discover'],
+    [/chia sẻ/gi, 'share'],
+    [/hướng dẫn/gi, 'guide'],
+    [/yêu cầu/gi, 'require'],
+    [/gợi ý/gi, 'suggest'],
+    [/hỗ trợ/gi, 'support'],
+    [/giúp đỡ/gi, 'help'],
+    [/chốt kiến thức/gi, 'consolidate knowledge'],
+    [/kiểm tra/gi, 'check'],
+    [/đọc/gi, 'read'],
+    [/viết/gi, 'write'],
+    [/nghe/gi, 'listen'],
+    [/nói/gi, 'speak'],
+    [/xem/gi, 'view'],
+    [/làm/gi, 'do'],
+    [/học/gi, 'study'],
+    // Nouns - Education
+    [/mục tiêu/gi, 'objectives'],
+    [/nội dung/gi, 'content'],
+    [/sản phẩm/gi, 'products'],
+    [/nhiệm vụ/gi, 'task'],
+    [/hoạt động/gi, 'activity'],
+    [/kiến thức/gi, 'knowledge'],
+    [/năng lực/gi, 'competency'],
+    [/phẩm chất/gi, 'qualities'],
+    [/kỹ năng/gi, 'skills'],
+    [/thái độ/gi, 'attitude'],
+    [/phương pháp/gi, 'method'],
+    [/hình thức/gi, 'form'],
+    [/phương tiện/gi, 'means'],
+    [/thiết bị/gi, 'equipment'],
+    [/học liệu/gi, 'learning materials'],
+    [/dụng cụ/gi, 'tools'],
+    [/tài liệu/gi, 'documents'],
+    [/sách giáo khoa/gi, 'textbook'],
+    [/SGK/g, 'textbook'],
+    [/SBT/g, 'workbook'],
+    [/sách bài tập/gi, 'workbook'],
+    [/vở ghi/gi, 'notebook'],
+    [/bảng phụ/gi, 'auxiliary board'],
+    [/bảng nhóm/gi, 'group board'],
+    [/phiếu học tập/gi, 'worksheet'],
+    [/máy chiếu/gi, 'projector'],
+    [/máy tính/gi, 'computer'],
+    [/bài tập/gi, 'exercise'],
+    [/bài toán/gi, 'problem'],
+    [/bài học/gi, 'lesson'],
+    [/tiết học/gi, 'class period'],
+    [/chương/gi, 'chapter'],
+    [/bài/gi, 'lesson'],
+    [/phần/gi, 'section'],
+    [/nhóm/gi, 'group'],
+    [/cá nhân/gi, 'individual'],
+    [/cả lớp/gi, 'whole class'],
+    [/lớp/gi, 'class'],
+    [/trường/gi, 'school'],
+    [/giáo án/gi, 'lesson plan'],
+    [/chương trình/gi, 'curriculum'],
+    // Subjects
+    [/Toán học/gi, 'Mathematics'],
+    [/Toán/gi, 'Mathematics'],
+    [/Ngữ văn/gi, 'Literature'],
+    [/Tiếng Anh/gi, 'English'],
+    [/Vật lý/gi, 'Physics'],
+    [/Vật lí/gi, 'Physics'],
+    [/Hóa học/gi, 'Chemistry'],
+    [/Sinh học/gi, 'Biology'],
+    [/Lịch sử/gi, 'History'],
+    [/Địa lý/gi, 'Geography'],
+    [/Địa lí/gi, 'Geography'],
+    [/Tin học/gi, 'Informatics'],
+    [/Công nghệ/gi, 'Technology'],
+    [/Giáo dục công dân/gi, 'Civic Education'],
+    [/Đạo đức/gi, 'Ethics'],
+    [/Thể dục/gi, 'Physical Education'],
+    [/Âm nhạc/gi, 'Music'],
+    [/Mỹ thuật/gi, 'Fine Arts'],
+    // Time & quantity
+    [/phút/gi, 'minutes'],
+    [/tiết/gi, 'period'],
+    [/buổi/gi, 'session'],
+    [/tuần/gi, 'week'],
+    [/tháng/gi, 'month'],
+    [/năm/gi, 'year'],
+    [/ngày/gi, 'day'],
+    // Connectors
+    [/và/gi, 'and'],
+    [/hoặc/gi, 'or'],
+    [/nhưng/gi, 'but'],
+    [/vì/gi, 'because'],
+    [/để/gi, 'to'],
+    [/của/gi, 'of'],
+    [/trong/gi, 'in'],
+    [/trên/gi, 'on'],
+    [/theo/gi, 'according to'],
+    [/với/gi, 'with'],
+    [/từ/gi, 'from'],
+    [/các/gi, 'the'],
+    [/những/gi, 'the'],
+    [/một/gi, 'a'],
+    [/này/gi, 'this'],
+    [/đó/gi, 'that'],
+    [/về/gi, 'about'],
+    [/tại/gi, 'at'],
+    [/sau/gi, 'after'],
+    [/trước/gi, 'before'],
+    [/rồi/gi, 'then'],
+    [/đã/gi, 'already'],
+    [/đang/gi, 'is'],
+    [/sẽ/gi, 'will'],
+    [/được/gi, 'be able to'],
+    [/có thể/gi, 'can'],
+    [/cần/gi, 'need'],
+    [/phải/gi, 'must'],
+    [/nên/gi, 'should'],
+    // Misc
+    [/chú ý/gi, 'note'],
+    [/lưu ý/gi, 'note'],
+    [/ví dụ/gi, 'example'],
+    [/kết quả/gi, 'result'],
+    [/chuẩn bị/gi, 'prepare'],
+    [/ôn tập/gi, 'review'],
+    [/cuối/gi, 'final'],
+    [/đầu/gi, 'beginning'],
+    [/mới/gi, 'new'],
+    [/cũ/gi, 'old'],
+    [/đúng/gi, 'correct'],
+    [/sai/gi, 'incorrect'],
+    [/tốt/gi, 'good'],
+    [/nhà/gi, 'home'],
+  ];
+
+  for (const [regex, replacement] of phraseDict) {
     translated = translated.replace(regex, replacement);
   }
 
-  if (translated === text) {
-    // Basic structural sentence translation wrapper
-    if (text.toLowerCase().includes('học sinh')) {
-      translated = text.replace(/Học sinh/gi, 'Students').replace(/thực hiện/gi, 'perform').replace(/thảo luận/gi, 'discuss');
-    } else {
-      translated = `Translate: ${text}`;
-    }
-  }
+  // Clean up extra spaces
+  translated = translated.replace(/\s{2,}/g, ' ').trim();
 
   return translated;
 }
@@ -95,7 +296,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
   onOpenApiKeyModal,
 }) => {
   // Config state
-  const [selectedModel, setSelectedModel] = useState<string>('gemini-3-flash-preview');
+  const [selectedModel, setSelectedModel] = useState<string>('gemini-2.5-flash');
   const [bilingualStyle, setBilingualStyle] = useState<BilingualStyle>('parallel');
   const [translationTone, setTranslationTone] = useState<TranslationStyleOption>('academic');
   const [apiKey, setApiKey] = useState<string>('');
@@ -372,7 +573,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
     tone: string
   ): Promise<Map<string, string>> => {
     const modelsToTry = Array.from(
-      new Set([initialModel, 'gemini-3-flash-preview', 'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'])
+      new Set([initialModel, 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-flash'])
     );
 
     const resultMap = new Map<string, string>();
@@ -675,24 +876,29 @@ Trả về duy nhất mảng JSON dạng: [{"id": "id_goc", "text": "English tra
             <div className="space-y-1.5">
               {[
                 {
-                  id: 'gemini-3-flash-preview',
-                  title: 'gemini-3-flash-preview 🚀',
-                  desc: 'Frontier model 2026, tốt nhất cho reasoning & thuật ngữ.',
-                },
-                {
-                  id: 'gemini-2.5-pro',
-                  title: 'gemini-2.5-pro 💎',
-                  desc: 'Chất lượng cao nhất cho giáo án độ dài lớn.',
-                },
-                {
                   id: 'gemini-2.5-flash',
-                  title: 'gemini-2.5-flash ⚡',
-                  desc: 'Cân bằng giữa tốc độ và quota tài khoản.',
+                  title: 'gemini-2.5-flash ⚡ MIỄN PHÍ',
+                  desc: 'Nhanh, miễn phí, cân bằng chất lượng/tốc độ. Khuyến nghị!',
                 },
                 {
                   id: 'gemini-2.5-flash-lite',
-                  title: 'gemini-2.5-flash-lite 💨',
-                  desc: 'Siêu nhẹ, dịch nhanh và tiết kiệm token.',
+                  title: 'gemini-2.5-flash-lite 💨 MIỄN PHÍ',
+                  desc: 'Siêu nhẹ & nhanh nhất, tiết kiệm quota tối đa.',
+                },
+                {
+                  id: 'gemini-2.0-flash',
+                  title: 'gemini-2.0-flash 🔄 MIỄN PHÍ',
+                  desc: 'Dự phòng ổn định, tốc độ tốt khi model mới hết quota.',
+                },
+                {
+                  id: 'gemini-2.0-flash-lite',
+                  title: 'gemini-2.0-flash-lite ♻️ MIỄN PHÍ',
+                  desc: 'Nhẹ nhất dòng 2.0, dự phòng khi các model khác hết hạn ngạch.',
+                },
+                {
+                  id: 'gemini-1.5-flash',
+                  title: 'gemini-1.5-flash 🛡️ MIỄN PHÍ',
+                  desc: 'Bản cũ nhưng rất ổn định, luôn có sẵn quota miễn phí.',
                 },
               ].map((m) => (
                 <div
