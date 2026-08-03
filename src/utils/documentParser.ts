@@ -10,15 +10,7 @@ export async function parseUploadedFileToNodes(file: File): Promise<PlanNode[]> 
 
   try {
     const arrayBuffer = await file.arrayBuffer();
-    // Configure mammoth to convert docx images (including MathType WMF/EMF formulas) to inline base64 PNG images
-    const result = await mammoth.convertToHtml({
-      arrayBuffer,
-      convertImage: mammoth.images.imgElement((image) => {
-        return image.read('base64').then((imageBuffer) => ({
-          src: `data:${image.contentType};base64,${imageBuffer}`,
-        }));
-      }),
-    });
+    const result = await mammoth.convertToHtml({ arrayBuffer });
     const html = result.value;
     return parseHtmlToNodes(html);
   } catch (e) {
