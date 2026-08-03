@@ -152,7 +152,6 @@ export const EditorView: React.FC<EditorViewProps> = ({
       return;
     }
 
-    setIsTranslating(true);
     try {
       const nodes = await parseUploadedFileToNodes(file);
       const newDoc: LessonPlanDocument = {
@@ -174,14 +173,13 @@ export const EditorView: React.FC<EditorViewProps> = ({
       setCurrentStep(2);
       triggerToast(`Đã tải thành công giáo án "${file.name}"!`);
 
+      // performTranslation tự quản lý isTranslating state — không set ở đây
       setTimeout(() => {
         performTranslation(nodes);
       }, 200);
     } catch (error) {
       console.error('File parse error:', error);
       alert('Không thể đọc tệp Word (.docx). Vui lòng kiểm tra lại định dạng tệp.');
-    } finally {
-      setIsTranslating(false);
     }
   };
 
@@ -201,6 +199,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
 
     try {
       const itemsToTranslate: { id: string; text: string }[] = [];
+      const emptyParaIds = new Set<string>(); // Track empty paragraphs to preserve sync
       nodesToProcess.forEach((node) => {
         if (node.type === 'table' && node.tableRows) {
           node.tableRows.forEach((row) => {
@@ -209,6 +208,9 @@ export const EditorView: React.FC<EditorViewProps> = ({
                 cell.paragraphs.forEach((p) => {
                   if (p.contentVi && p.contentVi.trim()) {
                     itemsToTranslate.push({ id: p.id, text: p.contentVi });
+                  } else {
+                    // Paragraph rỗng — đánh dấu để giữ sync, gán contentEn rỗng
+                    emptyParaIds.add(p.id);
                   }
                 });
               } else if (cell.contentVi && cell.contentVi.trim()) {
@@ -229,10 +231,13 @@ export const EditorView: React.FC<EditorViewProps> = ({
         return;
       }
 
+      // Pre-set empty paragraphs in translation map so they don't break cell.contentEn assembly
+      const translationsMap = new Map<string, string>();
+      emptyParaIds.forEach((id) => translationsMap.set(id, ''));
+
       setTranslationProgress({ current: 0, total: itemsToTranslate.length, pct: 0 });
 
       const BATCH_SIZE = 15;
-      const translationsMap = new Map<string, string>();
 
       for (let i = 0; i < itemsToTranslate.length; i += BATCH_SIZE) {
         const chunk = itemsToTranslate.slice(i, i + BATCH_SIZE);
@@ -373,14 +378,28 @@ export const EditorView: React.FC<EditorViewProps> = ({
     const resultMap = new Map<string, string>();
     let lastError: any = null;
 
-    const promptText = `Bạn là chuyên gia dịch thuật giáo dục Việt - Anh GDPT 2018.
-Dịch mảng JSON tiếng Việt sau sang tiếng Anh thuần túy (không ngoặc đơn, giữ nguyên công thức toán & mã id):
+    const toneGuide = tone === 'simple'
+      ? 'Dùng từ vựng đơn giản, dễ hiểu cho học sinh.'
+      : tone === 'formal'
+      ? 'Dùng văn phong trang trọng, hành chính - học thuật.'
+      : 'Dùng chuẩn thuật ngữ chuyên ngành GDPT 2018 / CV 5512.';
 
+    const promptText = `Bạn là chuyên gia dịch thuật giáo dục Việt - Anh GDPT 2018.
+Môn: ${subject}, Cấp: ${level}, Lớp: ${grade}. Phong cách: ${toneGuide}
+
+QUY TẮC:
+1. Dịch 100% sang tiếng Anh thuần túy, KHÔNG chèn tiếng Việt.
+2. KHÔNG đặt bản dịch trong ngoặc đơn (...).
+3. Giữ nguyên công thức toán/hóa, ký hiệu, số liệu.
+4. Trả về DUY NHẤT mảng JSON, không markdown.
+
+MẢNG CẦN DỊCH:
 ${JSON.stringify(chunkObjects, null, 2)}
 
 Trả về duy nhất mảng JSON dạng: [{"id": "id_goc", "text": "English translation"}]`;
 
-    for (const model of modelsToTry) {
+    for (let modelIdx = 0; modelIdx < modelsToTry.length; modelIdx++) {
+      const model = modelsToTry[modelIdx];
       // Try with responseMimeType first, then without
       const configsToTry = [
         { responseMimeType: 'application/json' },
@@ -405,6 +424,10 @@ Trả về duy nhất mảng JSON dạng: [{"id": "id_goc", "text": "English tra
           });
 
           if (response.status === 429 || response.status === 403) {
+            // Rate limited — wait before trying next model
+            if (modelIdx < modelsToTry.length - 1) {
+              await new Promise((r) => setTimeout(r, 1500));
+            }
             continue;
           }
 
@@ -416,8 +439,11 @@ Trả về duy nhất mảng JSON dạng: [{"id": "id_goc", "text": "English tra
           let textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
           if (!textResponse) continue;
 
-          // Robust JSON extraction
-          let cleanJsonStr = textResponse.trim().replace(/^```json\s*/, '').replace(/^```\s*/, '').replace(/\s*```$/, '');
+          // Robust JSON extraction — strip markdown fences and find JSON array
+          let cleanJsonStr = textResponse.trim();
+          // Remove markdown code fences (```json ... ``` or ``` ... ```)
+          cleanJsonStr = cleanJsonStr.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '');
+          // Try to find JSON array pattern
           const matchArray = cleanJsonStr.match(/\[\s*\{[\s\S]*\}\s*\]/);
           if (matchArray) {
             cleanJsonStr = matchArray[0];
@@ -428,10 +454,10 @@ Trả về duy nhất mảng JSON dạng: [{"id": "id_goc", "text": "English tra
             parsed = JSON.parse(cleanJsonStr);
           } catch {
             // Regex match individual objects if array parsing failed
-            const objRegex = /\{\s*"id"\s*:\s*"([^"]+)"\s*,\s*"text"\s*:\s*"([^"]+)"\s*\}/g;
+            const objRegex = /\{\s*"id"\s*:\s*"([^"]+)"\s*,\s*"text"\s*:\s*"((?:[^"\\]|\\.)*)"\s*\}/g;
             let m;
             while ((m = objRegex.exec(textResponse)) !== null) {
-              resultMap.set(m[1], m[2]);
+              resultMap.set(m[1], m[2].replace(/\\"/g, '"'));
             }
           }
 
@@ -447,6 +473,11 @@ Trả về duy nhất mảng JSON dạng: [{"id": "id_goc", "text": "English tra
         } catch (err) {
           lastError = err;
         }
+      }
+
+      // Delay between model attempts to avoid rate limits
+      if (modelIdx < modelsToTry.length - 1) {
+        await new Promise((r) => setTimeout(r, 800));
       }
     }
 
